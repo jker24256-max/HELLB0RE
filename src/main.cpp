@@ -25,7 +25,7 @@
 #endif
 
 namespace {
-enum class Screen : uint8_t { Dashboard, Wifi, Ble, Diagnostics, Reports, AttackLab, Terminal };
+enum class Screen : uint8_t { Dashboard, Wifi, Ble, Diagnostics, Reports, AttackLab, Terminal, Companion };
 Screen screen = Screen::Dashboard;
 int selection = 0;
 int scroll = 0;
@@ -48,6 +48,9 @@ uint32_t bootMillis = 0;
 uint32_t lastScanMillis = 0;
 String lastReport = "No report saved yet";
 String networkCheckSummary = "Not run";
+uint32_t companionXP = 0;
+String companionMood = "CURIOUS";
+String companionThought = "Let us map the airwaves.";
 constexpr uint16_t BG = 0x0812, PANEL = 0x10A2, PANEL_ACTIVE = 0x253F;
 constexpr uint16_t CYAN = 0x07FF, WHITE = 0xFFFF, MUTED = 0x7BEF, GOLD = 0xFDE0, RED = 0xF986, GREEN = 0x87F0;
 
@@ -95,7 +98,7 @@ void drawDashboard() {
         M5Cardputer.Display.setCursor(x + 5, y + 7);
         M5Cardputer.Display.printf("%d %s", i + 1, menuItems[i]);
     }
-    footer("1-6 open  W/S move  ENTER open");
+    footer("1-6 open  P companion  W/S move");
 }
 
 void drawWifi() {
@@ -192,6 +195,8 @@ bool mountSD() {
 String makeReport() {
     String report = "HELLEBORE REPORT\n";
     report += "Version: " HELLEBORE_VERSION "\n";
+    report += "Companion_XP: " + String(companionXP) + "\n";
+    report += "Companion_Level: " + String(companionLevel()) + "\n";
     report += "Uptime_ms: " + String(millis() - bootMillis) + "\n";
     report += "Free_heap: " + String(ESP.getFreeHeap()) + "\n";
     report += "Network_check: " + networkCheckSummary + "\n";
@@ -266,7 +271,7 @@ bool runActiveNetworkChecks() {
         return false;
     }
     IPAddress resolved;
-    bool dnsOk = WiFi.hostByName("example.com", resolved, 4000) == 1;
+    bool dnsOk = WiFi.hostByName("example.com", resolved) == 1;
     IPAddress gateway = WiFi.gatewayIP();
     bool gatewayHttp = false;
     bool gatewayHttps = false;
@@ -297,9 +302,8 @@ void drawDiagnostics() {
     textLine(68, "Wi-Fi: " + String(WiFi.getMode() == WIFI_MODE_NULL ? "idle" : "ready"));
     textLine(82, "BLE: " + String(bleReady ? "initialized" : "not initialized"));
     textLine(96, "microSD: " + String(sdReady ? "mounted" : "not mounted"));
-    textLine(96, "Status: " + statusLine, MUTED);
     textLine(109, "R: network checks (connected Wi-Fi)", CYAN);
-    footer("R test SD  ESC back");
+    footer("R network check  ESC back");
 }
 
 void drawReports() {
@@ -382,6 +386,43 @@ void drawAttackLab() {
     textLine(101, "Listen-only; counts aren't verdicts.", MUTED);
     footer("R run audit  E export  ESC back");
 }
+uint8_t companionLevel() { return (uint8_t)(1 + (companionXP / 5 > 19 ? 19 : companionXP / 5)); }
+
+void drawCompanion() {
+    header("HELLE");
+    M5Cardputer.Display.drawRoundRect(7, 26, 226, 72, 8, CYAN);
+    M5Cardputer.Display.setTextColor(GOLD, BG);
+    M5Cardputer.Display.setCursor(15, 33);
+    M5Cardputer.Display.printf("HELLEBORE COMPANION  LV.%u", companionLevel());
+    uint16_t face = companionMood == "PROUD" ? GOLD : CYAN;
+    M5Cardputer.Display.fillRoundRect(18, 48, 42, 35, 7, face);
+    M5Cardputer.Display.fillCircle(29, 60, 3, BG);
+    M5Cardputer.Display.fillCircle(48, 60, 3, BG);
+    M5Cardputer.Display.drawLine(29, 72, 48, 72, BG);
+    M5Cardputer.Display.setTextColor(WHITE, BG);
+    M5Cardputer.Display.setCursor(70, 51);
+    M5Cardputer.Display.print("MOOD: " + companionMood);
+    M5Cardputer.Display.setCursor(70, 65);
+    M5Cardputer.Display.printf("XP: %lu  UP: %lus", (unsigned long)companionXP, (unsigned long)((millis() - bootMillis) / 1000));
+    textLine(104, companionThought, MUTED);
+    footer("R interact  E save report  ESC back");
+}
+
+void interactCompanion() {
+    ++companionXP;
+    if (passiveAuditDone || wifiScanDone || bleScanDone) {
+        companionMood = "PROUD";
+        companionThought = "Evidence beats guesswork. Nice work.";
+    } else if (WiFi.status() == WL_CONNECTED) {
+        companionMood = "CURIOUS";
+        companionThought = "Link found. Keep your scope authorized.";
+    } else {
+        companionMood = "CURIOUS";
+        companionThought = "Run a scan, then save what you learn.";
+    }
+    dirty = true;
+}
+
 void drawTerminal() {
     header("TERMINAL");
     textLine(30, terminalOutput, CYAN);
@@ -442,10 +483,16 @@ void key(char c) {
         }
         return;
     }
+    if (screen == Screen::Companion) {
+        if (c == 'r' || c == 'R') interactCompanion();
+        else if (c == 'e' || c == 'E') { saveReport(); ++companionXP; companionMood = "PROUD"; companionThought = "Report secured. Evidence matters."; dirty = true; }
+        return;
+    }
     if (screen == Screen::Dashboard) {
         if (c >= '1' && c <= '6') { selection = c - '1'; openSelection(); }
         else if (c == 'w' || c == 'W') { selection = (selection + MENU_COUNT - 1) % MENU_COUNT; dirty = true; }
         else if (c == 's' || c == 'S') { selection = (selection + 1) % MENU_COUNT; dirty = true; }
+        else if (c == 'p' || c == 'P') { screen = Screen::Companion; dirty = true; }
         else if (c == '\n' || c == '\r') openSelection();
         return;
     }
@@ -481,6 +528,7 @@ void render() {
         case Screen::Reports: drawReports(); break;
         case Screen::AttackLab: drawAttackLab(); break;
         case Screen::Terminal: drawTerminal(); break;
+        case Screen::Companion: drawCompanion(); break;
     }
     dirty = false;
 }
@@ -494,6 +542,16 @@ void setup() {
     M5Cardputer.Display.setTextSize(1);
     bootMillis = millis();
     WiFi.mode(WIFI_MODE_NULL);
+    M5Cardputer.Display.fillScreen(BG);
+    M5Cardputer.Display.setTextColor(GOLD, BG);
+    M5Cardputer.Display.setTextSize(2);
+    M5Cardputer.Display.setCursor(24, 43);
+    M5Cardputer.Display.print("HELLEBORE");
+    M5Cardputer.Display.setTextSize(1);
+    M5Cardputer.Display.setTextColor(CYAN, BG);
+    M5Cardputer.Display.setCursor(36, 72);
+    M5Cardputer.Display.print("FIELD COMPANION ONLINE");
+    delay(650);
     render();
 }
 
