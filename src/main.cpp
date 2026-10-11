@@ -455,10 +455,12 @@ void key(char c) {
     if (c == 'r' || c == 'R') {
         if (screen == Screen::Wifi) runWifiScan();
         else if (screen == Screen::Ble) runBleScan();
-        else if (screen == Screen::Diagnostics || screen == Screen::Reports) {
+        else if (screen == Screen::Diagnostics) {
+            runActiveNetworkChecks();
+        } else if (screen == Screen::Reports) {
             sdReady = mountSD(); statusLine = sdReady ? "microSD OK" : "microSD unavailable"; dirty = true;
         } else if (screen == Screen::AttackLab) {
-            runWifiScan();
+            runPassiveWifiAudit();
         }
         return;
     }
