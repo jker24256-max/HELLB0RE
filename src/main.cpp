@@ -228,6 +228,27 @@ String makeReport() {
     report += "Note: passive frame counts are observations, not proof of an attack.\n";
     if (wifiScanDone) {
         int total = WiFi.scanComplete();
+        int openNetworks = 0;
+        int duplicateNames = 0;
+        uint8_t channelCounts[14] = {};
+        for (int i = 0; i < total; ++i) {
+            if (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ++openNetworks;
+            int channel = WiFi.channel(i);
+            if (channel >= 1 && channel <= 13) ++channelCounts[channel];
+            String current = WiFi.SSID(i);
+            if (current.length() == 0) continue;
+            for (int j = 0; j < i; ++j) {
+                if (current == WiFi.SSID(j)) { ++duplicateNames; break; }
+            }
+        }
+        report += "WiFi_Open_APs: " + String(openNetworks) + "\n";
+        report += "WiFi_Duplicate_SSID_observations: " + String(duplicateNames) + "\n";
+        report += "WiFi_Channel_counts:";
+        for (int ch = 1; ch <= 13; ++ch) {
+            if (channelCounts[ch]) report += " ch" + String(ch) + "=" + String(channelCounts[ch]);
+        }
+        report += "\n";
+        report += "Assessment_note: open APs and duplicate SSIDs need context; neither alone proves a vulnerability.\n";
         for (int i = 0; i < total; ++i) {
             String ssid = WiFi.SSID(i);
             ssid.replace(",", "_");
