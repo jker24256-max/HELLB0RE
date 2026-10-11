@@ -54,3 +54,8 @@ The firmware binary is normally written to `.pio/build/cardputer_adv/firmware.bi
 A successful CI compile verifies that the firmware builds, not that it behaves correctly on the physical Cardputer Adv. SD-card pin mapping and all runtime behavior still require device testing.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/HARDWARE.md](docs/HARDWARE.md), and [docs/FLASHING.md](docs/FLASHING.md).
+
+
+## Feature status and roadmap
+
+See [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) for implemented capabilities, planned modules, hardware limits, and acceptance-test status.
