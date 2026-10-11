@@ -113,7 +113,7 @@ void drawWifi() {
         }
         if (total > maxRows) textLine(109, "W/S scroll results", MUTED);
     }
-    footer("R scan  W/S scroll  E export  ESC back");
+    footer("R scan  W/S scroll  E export  Q back");
 }
 
 void runWifiScan() {
@@ -169,7 +169,6 @@ void runBleScan() {
     bleCount = results.getCount();
     bleScanDone = true;
     scroll = 0;
-    scanner->clearResults();
     statusLine = "BLE scan finished";
     dirty = true;
 }
@@ -272,7 +271,7 @@ void drawTerminal() {
     M5Cardputer.Display.setCursor(7, 91);
     M5Cardputer.Display.print("> ");
     M5Cardputer.Display.print(terminalInput.substring(0, 28));
-    footer("ENTER run  ESC dashboard");
+    footer("ENTER run  Q dashboard");
 }
 
 void runCommand() {
