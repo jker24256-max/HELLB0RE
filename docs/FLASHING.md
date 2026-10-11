@@ -27,6 +27,7 @@ Use one consolidated release image for a clean installation, rather than flashin
 - Wireless audit completes a passive listening window on channels 1, 6, and 11 and shows frame counters.
 - BLE scan returns nearby advertisements.
 - Reports screen can detect microSD and save a report.
-- Terminal commands `help`, `about`, `status`, `clear`, `scanwifi`, `scanble`, `audit`, and `report` behave as described.
+- Terminal commands `help`, `about`, `status`, `clear`, `scanwifi`, `scanble`, `netcheck`, `audit`, and `report` behave as described.
+- With the Cardputer connected to an authorized Wi-Fi network, `netcheck` reports IP/gateway/subnet/RSSI, DNS resolution, and gateway TCP reachability.
 
 Cloud CI proves that host tests and firmware compilation succeeded. Only the checks performed on the physical device prove hardware behavior.
