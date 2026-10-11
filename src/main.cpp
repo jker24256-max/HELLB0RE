@@ -52,7 +52,7 @@ uint32_t companionXP = 0;
 String companionMood = "CURIOUS";
 String companionThought = "Let us map the airwaves.";
 constexpr uint16_t BG = 0x0812, PANEL = 0x10A2, PANEL_ACTIVE = 0x253F;
-constexpr uint16_t CYAN = 0x07FF, WHITE = 0xFFFF, MUTED = 0x7BEF, GOLD = 0xFDE0, RED = 0xF986, GREEN = 0x87F0;
+constexpr uint16_t HB_CYAN = 0x07FF, WHITE = 0xFFFF, MUTED = 0x7BEF, HB_GOLD = 0xFDE0, RED = 0xF986, GREEN = 0x87F0;
 
 const char* menuItems[] = {"Wi-Fi discovery", "BLE discovery", "Diagnostics", "Reports / microSD", "Wireless security lab", "Terminal"};
 constexpr int MENU_COUNT = sizeof(menuItems) / sizeof(menuItems[0]);
@@ -61,7 +61,7 @@ void header(const char* title) {
     M5Cardputer.Display.fillScreen(BG);
     M5Cardputer.Display.fillRect(0, 0, 240, 20, 0x18E3);
     M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setTextColor(GOLD, 0x18E3);
+    M5Cardputer.Display.setTextColor(HB_GOLD, 0x18E3);
     M5Cardputer.Display.setCursor(6, 6);
     M5Cardputer.Display.print("HELLEBORE");
     M5Cardputer.Display.setTextColor(WHITE, 0x18E3);
@@ -93,7 +93,7 @@ void drawDashboard() {
         bool active = i == selection;
         uint16_t fill = active ? PANEL_ACTIVE : PANEL;
         M5Cardputer.Display.fillRoundRect(x, y, 111, 21, 3, fill);
-        M5Cardputer.Display.drawRoundRect(x, y, 111, 21, 3, active ? CYAN : 0x4208);
+        M5Cardputer.Display.drawRoundRect(x, y, 111, 21, 3, active ? HB_CYAN : 0x4208);
         M5Cardputer.Display.setTextColor(active ? WHITE : 0xC618, fill);
         M5Cardputer.Display.setCursor(x + 5, y + 7);
         M5Cardputer.Display.printf("%d %s", i + 1, menuItems[i]);
@@ -103,12 +103,12 @@ void drawDashboard() {
 
 void drawWifi() {
     header("WI-FI");
-    textLine(24, "2.4 GHz access point discovery", CYAN);
-    textLine(36, wifiScanDone ? "Scan complete" : "Press R to scan", wifiScanDone ? GREEN : GOLD);
+    textLine(24, "2.4 GHz access point discovery", HB_CYAN);
+    textLine(36, wifiScanDone ? "Scan complete" : "Press R to scan", wifiScanDone ? GREEN : HB_GOLD);
     if (!wifiScanDone) {
         textLine(51, "Press R to discover nearby APs");
     } else if (wifiCount == 0) {
-        textLine(51, "No networks found (or scan failed)", GOLD);
+        textLine(51, "No networks found (or scan failed)", HB_GOLD);
     } else {
         int total = WiFi.scanComplete();
         int maxRows = 4;
@@ -143,15 +143,15 @@ void runWifiScan() {
 
 void drawBle() {
     header("BLE");
-    textLine(24, "Bluetooth Low Energy discovery", CYAN);
-    textLine(37, bleScanDone ? "Scan complete" : "Press R to scan", bleScanDone ? GREEN : GOLD);
+    textLine(24, "Bluetooth Low Energy discovery", HB_CYAN);
+    textLine(37, bleScanDone ? "Scan complete" : "Press R to scan", bleScanDone ? GREEN : HB_GOLD);
     if (!bleReady) {
         textLine(52, "BLE stack unavailable", RED);
     } else if (!bleScanDone) {
         textLine(52, "Scans nearby advertisements");
         textLine(66, "Names may not be broadcast", MUTED);
     } else if (bleCount == 0) {
-        textLine(52, "No advertisements found", GOLD);
+        textLine(52, "No advertisements found", HB_GOLD);
     } else {
         BLEScan* scanner = BLEDevice::getScan();
         BLEScanResults results = scanner->getResults();
@@ -322,20 +322,20 @@ bool runActiveNetworkChecks() {
 
 void drawDiagnostics() {
     header("DIAGNOSTICS");
-    textLine(26, "Firmware: " HELLEBORE_VERSION, CYAN);
+    textLine(26, "Firmware: " HELLEBORE_VERSION, HB_CYAN);
     textLine(40, "Uptime: " + String((millis() - bootMillis) / 1000) + "s");
     textLine(54, "Free heap: " + String(ESP.getFreeHeap()) + " bytes");
     textLine(68, "Wi-Fi: " + String(WiFi.getMode() == WIFI_MODE_NULL ? "idle" : "ready"));
     textLine(82, "BLE: " + String(bleReady ? "initialized" : "not initialized"));
     textLine(96, "microSD: " + String(sdReady ? "mounted" : "not mounted"));
-    textLine(109, "R: network checks (connected Wi-Fi)", CYAN);
+    textLine(109, "R: network checks (connected Wi-Fi)", HB_CYAN);
     footer("R network check  ESC back");
 }
 
 void drawReports() {
     header("REPORTS");
-    textLine(28, "Report destination: microSD", CYAN);
-    textLine(44, "Last: " + lastReport, lastReport.startsWith("Saved") ? GREEN : GOLD);
+    textLine(28, "Report destination: microSD", HB_CYAN);
+    textLine(44, "Last: " + lastReport, lastReport.startsWith("Saved") ? GREEN : HB_GOLD);
     textLine(62, "Reports include device health,", WHITE);
     textLine(75, "scan counts and available AP data.", WHITE);
     textLine(91, "BLE details stay summarized in v0.1.", MUTED);
@@ -403,8 +403,8 @@ void runPassiveWifiAudit() {
 
 void drawAttackLab() {
     header("WIRELESS AUDIT");
-    textLine(25, "PASSIVE 2.4 GHz FRAME AUDIT", CYAN);
-    textLine(38, passiveAuditRunning ? "Listening..." : (passiveAuditDone ? "Last audit: complete" : "No audit run yet"), passiveAuditDone ? GREEN : GOLD);
+    textLine(25, "PASSIVE 2.4 GHz FRAME AUDIT", HB_CYAN);
+    textLine(38, passiveAuditRunning ? "Listening..." : (passiveAuditDone ? "Last audit: complete" : "No audit run yet"), passiveAuditDone ? GREEN : HB_GOLD);
     textLine(51, "Beacons: " + String((uint32_t)frameBeacons));
     textLine(63, "Probe req/resp: " + String((uint32_t)frameProbeRequests) + "/" + String((uint32_t)frameProbeResponses));
     textLine(75, "Deauth/disassoc: " + String((uint32_t)frameDeauth) + "/" + String((uint32_t)frameDisassoc));
@@ -416,11 +416,11 @@ uint8_t companionLevel() { return (uint8_t)(1 + (companionXP / 5 > 19 ? 19 : com
 
 void drawCompanion() {
     header("HELLE");
-    M5Cardputer.Display.drawRoundRect(7, 26, 226, 72, 8, CYAN);
-    M5Cardputer.Display.setTextColor(GOLD, BG);
+    M5Cardputer.Display.drawRoundRect(7, 26, 226, 72, 8, HB_CYAN);
+    M5Cardputer.Display.setTextColor(HB_GOLD, BG);
     M5Cardputer.Display.setCursor(15, 33);
     M5Cardputer.Display.printf("HELLEBORE COMPANION  LV.%u", companionLevel());
-    uint16_t face = companionMood == "PROUD" ? GOLD : CYAN;
+    uint16_t face = companionMood == "PROUD" ? HB_GOLD : HB_CYAN;
     M5Cardputer.Display.fillRoundRect(18, 48, 42, 35, 7, face);
     M5Cardputer.Display.fillCircle(29, 60, 3, BG);
     M5Cardputer.Display.fillCircle(48, 60, 3, BG);
@@ -451,7 +451,7 @@ void interactCompanion() {
 
 void drawTerminal() {
     header("TERMINAL");
-    textLine(30, terminalOutput, CYAN);
+    textLine(30, terminalOutput, HB_CYAN);
     M5Cardputer.Display.setTextColor(WHITE, BG);
     M5Cardputer.Display.setCursor(7, 91);
     M5Cardputer.Display.print("> ");
@@ -569,12 +569,12 @@ void setup() {
     bootMillis = millis();
     WiFi.mode(WIFI_MODE_NULL);
     M5Cardputer.Display.fillScreen(BG);
-    M5Cardputer.Display.setTextColor(GOLD, BG);
+    M5Cardputer.Display.setTextColor(HB_GOLD, BG);
     M5Cardputer.Display.setTextSize(2);
     M5Cardputer.Display.setCursor(24, 43);
     M5Cardputer.Display.print("HELLEBORE");
     M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setTextColor(CYAN, BG);
+    M5Cardputer.Display.setTextColor(HB_CYAN, BG);
     M5Cardputer.Display.setCursor(36, 72);
     M5Cardputer.Display.print("FIELD COMPANION ONLINE");
     delay(650);
