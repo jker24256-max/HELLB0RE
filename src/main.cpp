@@ -7,6 +7,7 @@
 #include <SD.h>
 #include <time.h>
 #include <string>
+#include <esp_wifi.h>
 #include "core/CommandParser.h"
 
 #ifndef HELLEBORE_VERSION
@@ -34,6 +35,11 @@ bool sdReady = false;
 bool bleReady = false;
 bool wifiScanDone = false;
 bool bleScanDone = false;
+bool passiveAuditDone = false;
+bool passiveAuditRunning = false;
+volatile uint32_t frameBeacons = 0, frameProbeRequests = 0, frameProbeResponses = 0;
+volatile uint32_t frameDeauth = 0, frameDisassoc = 0, frameAuth = 0, frameData = 0, frameOtherMgmt = 0;
+volatile uint8_t observedChannel = 0;
 int wifiCount = 0;
 int bleCount = 0;
 uint32_t bootMillis = 0;
@@ -189,7 +195,16 @@ String makeReport() {
     report += "WiFi_AP_count: " + String(wifiCount) + "\n";
     report += "BLE_scan_complete: " + String(bleScanDone ? "yes" : "no") + "\n";
     report += "BLE_device_count: " + String(bleCount) + "\n";
-    report += "Note: advertised data is observational, not a complete security verdict.\n";
+    report += "Passive_audit_complete: " + String(passiveAuditDone ? "yes" : "no") + "\n";
+    report += "Passive_audit_beacons: " + String((uint32_t)frameBeacons) + "\n";
+    report += "Passive_audit_probe_requests: " + String((uint32_t)frameProbeRequests) + "\n";
+    report += "Passive_audit_probe_responses: " + String((uint32_t)frameProbeResponses) + "\n";
+    report += "Passive_audit_deauth_frames: " + String((uint32_t)frameDeauth) + "\n";
+    report += "Passive_audit_disassoc_frames: " + String((uint32_t)frameDisassoc) + "\n";
+    report += "Passive_audit_auth_frames: " + String((uint32_t)frameAuth) + "\n";
+    report += "Passive_audit_data_frames: " + String((uint32_t)frameData) + "\n";
+    report += "Passive_audit_other_mgmt: " + String((uint32_t)frameOtherMgmt) + "\n";
+    report += "Note: passive frame counts are observations, not proof of an attack.\n";
     if (wifiScanDone) {
         int total = WiFi.scanComplete();
         for (int i = 0; i < total; ++i) {
@@ -253,70 +268,76 @@ void drawReports() {
     footer("E save report  R test SD  ESC back");
 }
 
-void drawAttackLab() {
-    header("WIRELESS LAB");
-    textLine(25, "REAL, NON-DISRUPTIVE AUDITS", CYAN);
-    textLine(39, "1. Wi-Fi exposure audit", WHITE);
-    textLine(53, "2. Duplicate SSID / AP clues", WHITE);
-    textLine(67, "3. Channel congestion snapshot", WHITE);
-    textLine(81, "4. BLE advertisement inventory", WHITE);
-    textLine(99, "Rerun scans first for fresh results", GOLD);
-    footer("1-4 run audit  R refresh  ESC back");
+void passiveWifiCallback(void* buffer, wifi_promiscuous_pkt_type_t packetType) {
+    if (!buffer) return;
+    const wifi_promiscuous_pkt_t* packet = (const wifi_promiscuous_pkt_t*)buffer;
+    if (!packet->payload) return;
+    const uint8_t* frame = packet->payload;
+    uint16_t fc = (uint16_t)frame[0] | ((uint16_t)frame[1] << 8);
+    uint8_t type = (fc >> 2) & 0x03;
+    uint8_t subtype = (fc >> 4) & 0x0F;
+    observedChannel = packet->rx_ctrl.channel;
+    if (type == 0) {
+        if (subtype == 8) ++frameBeacons;
+        else if (subtype == 4) ++frameProbeRequests;
+        else if (subtype == 5) ++frameProbeResponses;
+        else if (subtype == 12) ++frameDeauth;
+        else if (subtype == 10) ++frameDisassoc;
+        else if (subtype == 11) ++frameAuth;
+        else ++frameOtherMgmt;
+    } else if (type == 2) {
+        ++frameData;
+    }
 }
 
-void runLabCheck(int choice) {
-    if (choice == 4) {
-        runBleScan();
-        terminalOutput = "BLE inventory: " + String(bleCount) +
-                         " advertisements observed. See BLE page/report.";
-        screen = Screen::Terminal;
+void runPassiveWifiAudit() {
+    statusLine = "Starting passive Wi-Fi audit...";
+    passiveAuditRunning = true;
+    passiveAuditDone = false;
+    frameBeacons = frameProbeRequests = frameProbeResponses = 0;
+    frameDeauth = frameDisassoc = frameAuth = frameData = frameOtherMgmt = 0;
+    observedChannel = 0;
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect(false, false);
+    esp_err_t cbResult = esp_wifi_set_promiscuous_rx_cb(&passiveWifiCallback);
+    esp_err_t onResult = cbResult == ESP_OK ? esp_wifi_set_promiscuous(true) : cbResult;
+    if (onResult != ESP_OK) {
+        passiveAuditRunning = false;
+        statusLine = "Passive monitor unavailable";
+        terminalOutput = "Passive monitor failed (ESP error " + String((int)onResult) + ")";
         dirty = true;
         return;
     }
-
-    if (!wifiScanDone || millis() - lastScanMillis > 60000) runWifiScan();
-    const int total = WiFi.scanComplete();
-    int openCount = 0;
-    int channelCounts[15] = {0};
-    int duplicatePairs = 0;
-
-    for (int i = 0; i < total; ++i) {
-        if (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ++openCount;
-        int ch = WiFi.channel(i);
-        if (ch >= 1 && ch <= 14) ++channelCounts[ch];
-        String a = WiFi.SSID(i);
-        if (a.length() == 0) continue;
-        for (int j = i + 1; j < total; ++j) {
-            if (a == WiFi.SSID(j) && WiFi.BSSIDstr(i) != WiFi.BSSIDstr(j)) {
-                ++duplicatePairs;
-            }
+    // Listen only; this routine never transmits crafted frames or disrupts clients.
+    const uint8_t channels[] = {1, 6, 11};
+    for (uint8_t channel : channels) {
+        esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
+        uint32_t started = millis();
+        while (millis() - started < 1800) {
+            M5Cardputer.update();
+            delay(10);
         }
     }
-
-    if (choice == 1) {
-        terminalOutput = "Wi-Fi exposure: " + String(openCount) + " open of " +
-                         String(total < 0 ? 0 : total) +
-                         " APs. Open does not prove exploitability.";
-    } else if (choice == 2) {
-        terminalOutput = "SSID matches across distinct BSSIDs: " +
-                         String(duplicatePairs) +
-                         ". May be normal mesh/roaming; verify ownership.";
-    } else if (choice == 3) {
-        int busiest = 1;
-        for (int ch = 2; ch <= 14; ++ch) {
-            if (channelCounts[ch] > channelCounts[busiest]) busiest = ch;
-        }
-        terminalOutput = "Channel snapshot: busiest ch " + String(busiest) +
-                         " has " + String(channelCounts[busiest]) +
-                         " APs. Scan is not a spectrum analyzer.";
-    } else {
-        terminalOutput = "Choose 1-4 in Wireless Lab.";
-    }
-    statusLine = "Wireless audit completed";
-    screen = Screen::Terminal;
+    esp_wifi_set_promiscuous(false);
+    WiFi.mode(WIFI_MODE_NULL);
+    passiveAuditRunning = false;
+    passiveAuditDone = true;
+    statusLine = "Passive audit complete (ch 1/6/11)";
+    terminalOutput = "Passive Wi-Fi audit complete; press E to save evidence.";
     dirty = true;
 }
 
+void drawAttackLab() {
+    header("WIRELESS AUDIT");
+    textLine(25, "PASSIVE 2.4 GHz FRAME AUDIT", CYAN);
+    textLine(38, passiveAuditRunning ? "Listening..." : (passiveAuditDone ? "Last audit: complete" : "No audit run yet"), passiveAuditDone ? GREEN : GOLD);
+    textLine(51, "Beacons: " + String((uint32_t)frameBeacons));
+    textLine(63, "Probe req/resp: " + String((uint32_t)frameProbeRequests) + "/" + String((uint32_t)frameProbeResponses));
+    textLine(75, "Deauth/disassoc: " + String((uint32_t)frameDeauth) + "/" + String((uint32_t)frameDisassoc));
+    textLine(87, "Auth/data: " + String((uint32_t)frameAuth) + "/" + String((uint32_t)frameData));
+    textLine(101, "Listen-only; counts aren't verdicts.", MUTED);
+    footer("R run audit  E export  ESC back");
+}
 void drawTerminal() {
     header("TERMINAL");
     textLine(30, terminalOutput, CYAN);
@@ -329,7 +350,7 @@ void drawTerminal() {
 
 void runCommand() {
     switch (hellebore::parseCommand(std::string(terminalInput.c_str()))) {
-        case hellebore::Command::Help: terminalOutput = "help about status scanwifi scanble report"; break;
+        case hellebore::Command::Help: terminalOutput = "help about status scanwifi scanble audit report"; break;
         case hellebore::Command::About: terminalOutput = "HELLEBORE v" HELLEBORE_VERSION " Cardputer Adv"; break;
         case hellebore::Command::Status: terminalOutput = "heap " + String(ESP.getFreeHeap()) + " | " + statusLine; break;
         case hellebore::Command::Clear: terminalOutput = ""; break;
@@ -339,6 +360,7 @@ void runCommand() {
             cmd.toLowerCase();
             if (cmd == "scanwifi") { runWifiScan(); terminalOutput = "Wi-Fi scan complete"; }
             else if (cmd == "scanble") { runBleScan(); terminalOutput = "BLE scan complete"; }
+            else if (cmd == "audit") { runPassiveWifiAudit(); }
             else if (cmd == "report") { terminalOutput = saveReport() ? "Report saved" : "Report failed; check SD"; }
             else terminalOutput = "Unknown command. Type help.";
             break;
@@ -396,12 +418,10 @@ void key(char c) {
         return;
     }
     if (c == 'e' || c == 'E') {
-        if (screen == Screen::Wifi || screen == Screen::Reports) { saveReport(); dirty = true; }
+        if (screen == Screen::Wifi || screen == Screen::Reports || screen == Screen::AttackLab) { saveReport(); dirty = true; }
         return;
     }
-    if (screen == Screen::AttackLab && c >= '1' && c <= '4') {
-        runLabCheck(c - '0');
-    }
+
 }
 
 void render() {
