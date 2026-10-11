@@ -22,10 +22,11 @@ Use one consolidated release image for a clean installation, rather than flashin
 ## First boot acceptance check
 
 - HELLEBORE dashboard appears.
-- Number keys open Wi-Fi, BLE, diagnostics, reports, simulation and terminal screens.
+- Number keys open Wi-Fi, BLE, diagnostics, reports, wireless audit and terminal screens.
 - Wi-Fi scan returns a result list in a location with nearby access points.
+- Wireless audit completes a passive listening window on channels 1, 6, and 11 and shows frame counters.
 - BLE scan returns nearby advertisements.
 - Reports screen can detect microSD and save a report.
-- Terminal commands `help`, `about`, `status`, `clear`, `scanwifi`, `scanble`, and `report` behave as described.
+- Terminal commands `help`, `about`, `status`, `clear`, `scanwifi`, `scanble`, `audit`, and `report` behave as described.
 
 Cloud CI proves that host tests and firmware compilation succeeded. Only the checks performed on the physical device prove hardware behavior.
