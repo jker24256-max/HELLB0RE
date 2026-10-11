@@ -18,10 +18,11 @@
 - **Modules:** user-facing workflows built on services.
 - **Tests:** host-side pure-logic tests plus cloud firmware compilation and later hardware acceptance checks.
 
-## v0.1 acceptance criteria
+## v0.2 acceptance criteria
 
 - CI host tests pass.
-- PlatformIO compiles the Cardputer Adv target.
+- PlatformIO compiles the Cardputer Adv target and merges a single full-flash image.
+- Passive Wi-Fi audit listens on channels 1, 6, and 11 and reports frame counters.
 - Boot reaches the dashboard.
 - Keyboard input can select a module, open it and return.
 - Terminal commands help/about/status/clear work.
