@@ -317,6 +317,39 @@ bool saveReport() {
     return true;
 }
 
+bool saveCsvReport() {
+    if (!mountSD()) {
+        lastReport = "microSD unavailable";
+        statusLine = "Insert/verify microSD";
+        return false;
+    }
+    String path = "/HELLEBORE.csv";
+    if (SD.exists(path)) path = "/HELLEBORE-" + String(millis()) + ".csv";
+    File file = SD.open(path, FILE_WRITE);
+    if (!file) { lastReport = "CSV open failed"; return false; }
+    file.println("key,value");
+    file.println("firmware_version," HELLEBORE_VERSION);
+    file.println("uptime_ms," + String(millis() - bootMillis));
+    file.println("free_heap," + String(ESP.getFreeHeap()));
+    file.println("companion_xp," + String(companionXP));
+    file.println("companion_level," + String(companionLevel()));
+    file.println("wifi_scan_complete," + String(wifiScanDone ? "true" : "false"));
+    file.println("wifi_ap_count," + String(wifiCount));
+    file.println("ble_scan_complete," + String(bleScanDone ? "true" : "false"));
+    file.println("ble_device_count," + String(bleCount));
+    file.println("passive_audit_complete," + String(passiveAuditDone ? "true" : "false"));
+    file.println("deauth_frames_observed," + String((uint32_t)frameDeauth));
+    file.println("disassoc_frames_observed," + String((uint32_t)frameDisassoc));
+    String net = networkCheckSummary;
+    net.replace(",", ";");
+    file.println("network_check_summary," + net);
+    file.println("note,observations require context and are not vulnerability verdicts");
+    file.close();
+    lastReport = "Saved " + path;
+    statusLine = "CSV report saved";
+    return true;
+}
+
 bool runActiveNetworkChecks() {
     if (WiFi.status() != WL_CONNECTED) {
         networkCheckSummary = "Not connected to Wi-Fi";
@@ -368,7 +401,7 @@ void drawReports() {
     textLine(62, "Reports include device health,", WHITE);
     textLine(75, "scan counts and available AP data.", WHITE);
     textLine(91, "BLE details stay summarized in v0.1.", MUTED);
-    footer("E save report  R test SD  ESC back");
+    footer("E TXT report  C CSV  R test SD");
 }
 
 void passiveWifiCallback(void* buffer, wifi_promiscuous_pkt_type_t packetType) {
@@ -504,6 +537,7 @@ void runCommand() {
             else if (cmd == "audit") { runPassiveWifiAudit(); }
             else if (cmd == "netcheck") { runActiveNetworkChecks(); }
             else if (cmd == "report") { terminalOutput = saveReport() ? "Report saved" : "Report failed; check SD"; }
+            else if (cmd == "csv") { terminalOutput = saveCsvReport() ? "CSV report saved" : "CSV report failed; check SD"; }
             else terminalOutput = "Unknown command. Type help.";
             break;
         }
