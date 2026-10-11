@@ -392,7 +392,6 @@ void loop() {
         for (char c : state.word) key(c);
         if (state.enter) key('\n');
         if (state.del) key('\b');
-        if (state.esc) key(0x1B);
     }
     render();
     delay(5);
