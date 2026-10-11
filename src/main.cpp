@@ -42,7 +42,7 @@ String lastReport = "No report saved yet";
 constexpr uint16_t BG = 0x0812, PANEL = 0x10A2, PANEL_ACTIVE = 0x253F;
 constexpr uint16_t CYAN = 0x07FF, WHITE = 0xFFFF, MUTED = 0x7BEF, GOLD = 0xFDE0, RED = 0xF986, GREEN = 0x87F0;
 
-const char* menuItems[] = {"Wi-Fi discovery", "BLE discovery", "Diagnostics", "Reports / microSD", "Attack simulations", "Terminal"};
+const char* menuItems[] = {"Wi-Fi discovery", "BLE discovery", "Diagnostics", "Reports / microSD", "Wireless security lab", "Terminal"};
 constexpr int MENU_COUNT = sizeof(menuItems) / sizeof(menuItems[0]);
 
 void header(const char* title) {
@@ -254,14 +254,67 @@ void drawReports() {
 }
 
 void drawAttackLab() {
-    header("SIMULATOR");
-    textLine(27, "CONTROLLED SECURITY EXERCISES", CYAN);
-    textLine(43, "1. Rogue AP detection scenario", WHITE);
-    textLine(57, "2. Open-network risk walkthrough", WHITE);
-    textLine(71, "3. BLE privacy-risk walkthrough", WHITE);
-    textLine(85, "4. Incident response checklist", WHITE);
-    textLine(101, "Simulation only; no radio disruption.", GOLD);
-    footer("1-4 choose exercise  ESC back");
+    header("WIRELESS LAB");
+    textLine(25, "REAL, NON-DISRUPTIVE AUDITS", CYAN);
+    textLine(39, "1. Wi-Fi exposure audit", WHITE);
+    textLine(53, "2. Duplicate SSID / AP clues", WHITE);
+    textLine(67, "3. Channel congestion snapshot", WHITE);
+    textLine(81, "4. BLE advertisement inventory", WHITE);
+    textLine(99, "Rerun scans first for fresh results", GOLD);
+    footer("1-4 run audit  R refresh  ESC back");
+}
+
+void runLabCheck(int choice) {
+    if (choice == 4) {
+        runBleScan();
+        terminalOutput = "BLE inventory: " + String(bleCount) +
+                         " advertisements observed. See BLE page/report.";
+        screen = Screen::Terminal;
+        dirty = true;
+        return;
+    }
+
+    if (!wifiScanDone || millis() - lastScanMillis > 60000) runWifiScan();
+    const int total = WiFi.scanComplete();
+    int openCount = 0;
+    int channelCounts[15] = {0};
+    int duplicatePairs = 0;
+
+    for (int i = 0; i < total; ++i) {
+        if (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ++openCount;
+        int ch = WiFi.channel(i);
+        if (ch >= 1 && ch <= 14) ++channelCounts[ch];
+        String a = WiFi.SSID(i);
+        if (a.length() == 0) continue;
+        for (int j = i + 1; j < total; ++j) {
+            if (a == WiFi.SSID(j) && WiFi.BSSIDstr(i) != WiFi.BSSIDstr(j)) {
+                ++duplicatePairs;
+            }
+        }
+    }
+
+    if (choice == 1) {
+        terminalOutput = "Wi-Fi exposure: " + String(openCount) + " open of " +
+                         String(total < 0 ? 0 : total) +
+                         " APs. Open does not prove exploitability.";
+    } else if (choice == 2) {
+        terminalOutput = "SSID matches across distinct BSSIDs: " +
+                         String(duplicatePairs) +
+                         ". May be normal mesh/roaming; verify ownership.";
+    } else if (choice == 3) {
+        int busiest = 1;
+        for (int ch = 2; ch <= 14; ++ch) {
+            if (channelCounts[ch] > channelCounts[busiest]) busiest = ch;
+        }
+        terminalOutput = "Channel snapshot: busiest ch " + String(busiest) +
+                         " has " + String(channelCounts[busiest]) +
+                         " APs. Scan is not a spectrum analyzer.";
+    } else {
+        terminalOutput = "Choose 1-4 in Wireless Lab.";
+    }
+    statusLine = "Wireless audit completed";
+    screen = Screen::Terminal;
+    dirty = true;
 }
 
 void drawTerminal() {
@@ -338,7 +391,7 @@ void key(char c) {
         else if (screen == Screen::Diagnostics || screen == Screen::Reports) {
             sdReady = mountSD(); statusLine = sdReady ? "microSD OK" : "microSD unavailable"; dirty = true;
         } else if (screen == Screen::AttackLab) {
-            statusLine = "Scenario selected; simulation only"; dirty = true;
+            runWifiScan();
         }
         return;
     }
@@ -347,15 +400,7 @@ void key(char c) {
         return;
     }
     if (screen == Screen::AttackLab && c >= '1' && c <= '4') {
-        static const char* exercises[] = {
-            "Rogue AP: compare observed SSID/BSSID changes.",
-            "Open AP: verify sensitive traffic uses TLS.",
-            "BLE privacy: observe rotating addresses.",
-            "Response: record, contain, verify, document."
-        };
-        terminalOutput = exercises[c - '1'];
-        screen = Screen::Terminal;
-        dirty = true;
+        runLabCheck(c - '0');
     }
 }
 
