@@ -192,6 +192,35 @@ bool mountSD() {
     return sdReady;
 }
 
+void loadCompanionProfile() {
+    if (!mountSD() || !SD.exists("/HELLEBORE.CFG")) return;
+    File file = SD.open("/HELLEBORE.CFG", FILE_READ);
+    if (!file) return;
+    while (file.available()) {
+        String line = file.readStringUntil('\n');
+        line.trim();
+        if (line.startsWith("xp=")) companionXP = (uint32_t)line.substring(3).toInt();
+        else if (line.startsWith("mood=")) companionMood = line.substring(5);
+        else if (line.startsWith("thought=")) companionThought = line.substring(8);
+    }
+    file.close();
+}
+
+void saveCompanionProfile() {
+    if (!mountSD()) return;
+    SD.remove("/HELLEBORE.TMP");
+    File file = SD.open("/HELLEBORE.TMP", FILE_WRITE);
+    if (!file) return;
+    file.println("xp=" + String(companionXP));
+    file.println("mood=" + companionMood);
+    String safeThought = companionThought;
+    safeThought.replace("\n", " ");
+    file.println("thought=" + safeThought);
+    file.close();
+    SD.remove("/HELLEBORE.CFG");
+    SD.rename("/HELLEBORE.TMP", "/HELLEBORE.CFG");
+}
+
 uint8_t companionLevel();
 
 String makeReport() {
@@ -446,6 +475,7 @@ void interactCompanion() {
         companionMood = "CURIOUS";
         companionThought = "Run a scan, then save what you learn.";
     }
+    saveCompanionProfile();
     dirty = true;
 }
 
@@ -511,7 +541,7 @@ void key(char c) {
     }
     if (screen == Screen::Companion) {
         if (c == 'r' || c == 'R') interactCompanion();
-        else if (c == 'e' || c == 'E') { saveReport(); ++companionXP; companionMood = "PROUD"; companionThought = "Report secured. Evidence matters."; dirty = true; }
+        else if (c == 'e' || c == 'E') { saveReport(); ++companionXP; companionMood = "PROUD"; companionThought = "Report secured. Evidence matters."; saveCompanionProfile(); dirty = true; }
         return;
     }
     if (screen == Screen::Dashboard) {
@@ -567,6 +597,7 @@ void setup() {
     M5Cardputer.Display.setBrightness(100);
     M5Cardputer.Display.setTextSize(1);
     bootMillis = millis();
+    loadCompanionProfile();
     WiFi.mode(WIFI_MODE_NULL);
     M5Cardputer.Display.fillScreen(BG);
     M5Cardputer.Display.setTextColor(HB_GOLD, BG);
