@@ -1,5 +1,7 @@
 #include <M5Cardputer.h>
 #include <WiFi.h>
+#include <WiFiClient.h>
+#include <ESPmDNS.h>
 #include <BLEDevice.h>
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
@@ -45,6 +47,7 @@ int bleCount = 0;
 uint32_t bootMillis = 0;
 uint32_t lastScanMillis = 0;
 String lastReport = "No report saved yet";
+String networkCheckSummary = "Not run";
 constexpr uint16_t BG = 0x0812, PANEL = 0x10A2, PANEL_ACTIVE = 0x253F;
 constexpr uint16_t CYAN = 0x07FF, WHITE = 0xFFFF, MUTED = 0x7BEF, GOLD = 0xFDE0, RED = 0xF986, GREEN = 0x87F0;
 
@@ -191,6 +194,14 @@ String makeReport() {
     report += "Version: " HELLEBORE_VERSION "\n";
     report += "Uptime_ms: " + String(millis() - bootMillis) + "\n";
     report += "Free_heap: " + String(ESP.getFreeHeap()) + "\n";
+    report += "Network_check: " + networkCheckSummary + "\n";
+    if (WiFi.status() == WL_CONNECTED) {
+        report += "Connected_SSID: " + WiFi.SSID() + "\n";
+        report += "Local_IP: " + WiFi.localIP().toString() + "\n";
+        report += "Gateway_IP: " + WiFi.gatewayIP().toString() + "\n";
+        report += "Subnet: " + WiFi.subnetMask().toString() + "\n";
+        report += "WiFi_RSSI: " + String(WiFi.RSSI()) + "\n";
+    }
     report += "WiFi_scan_complete: " + String(wifiScanDone ? "yes" : "no") + "\n";
     report += "WiFi_AP_count: " + String(wifiCount) + "\n";
     report += "BLE_scan_complete: " + String(bleScanDone ? "yes" : "no") + "\n";
@@ -246,6 +257,38 @@ bool saveReport() {
     return true;
 }
 
+bool runActiveNetworkChecks() {
+    if (WiFi.status() != WL_CONNECTED) {
+        networkCheckSummary = "Not connected to Wi-Fi";
+        statusLine = "Connect to an authorized Wi-Fi network first";
+        terminalOutput = "NETCHECK: not connected. Join your own/test network using a trusted setup first.";
+        dirty = true;
+        return false;
+    }
+    IPAddress resolved;
+    bool dnsOk = WiFi.hostByName("example.com", resolved, 4000) == 1;
+    IPAddress gateway = WiFi.gatewayIP();
+    bool gatewayHttp = false;
+    bool gatewayHttps = false;
+    WiFiClient client;
+    client.setTimeout(1200);
+    if (gateway != IPAddress(0, 0, 0, 0)) {
+        gatewayHttp = client.connect(gateway, 80);
+        if (gatewayHttp) client.stop();
+        gatewayHttps = client.connect(gateway, 443);
+        if (gatewayHttps) client.stop();
+    }
+    networkCheckSummary = String("DNS ") + (dnsOk ? "OK" : "FAIL") +
+        " | GW:80 " + (gatewayHttp ? "open/responding" : "no response") +
+        " | GW:443 " + (gatewayHttps ? "open/responding" : "no response");
+    terminalOutput = "NETCHECK " + WiFi.localIP().toString() + " gw " + gateway.toString() +
+        " DNS:" + (dnsOk ? "OK" : "FAIL") +
+        " 80:" + (gatewayHttp ? "YES" : "NO") + " 443:" + (gatewayHttps ? "YES" : "NO");
+    statusLine = "Active network checks complete";
+    dirty = true;
+    return dnsOk;
+}
+
 void drawDiagnostics() {
     header("DIAGNOSTICS");
     textLine(26, "Firmware: " HELLEBORE_VERSION, CYAN);
@@ -254,7 +297,8 @@ void drawDiagnostics() {
     textLine(68, "Wi-Fi: " + String(WiFi.getMode() == WIFI_MODE_NULL ? "idle" : "ready"));
     textLine(82, "BLE: " + String(bleReady ? "initialized" : "not initialized"));
     textLine(96, "microSD: " + String(sdReady ? "mounted" : "not mounted"));
-    textLine(109, "Status: " + statusLine, MUTED);
+    textLine(96, "Status: " + statusLine, MUTED);
+    textLine(109, "R: network checks (connected Wi-Fi)", CYAN);
     footer("R test SD  ESC back");
 }
 
@@ -350,7 +394,7 @@ void drawTerminal() {
 
 void runCommand() {
     switch (hellebore::parseCommand(std::string(terminalInput.c_str()))) {
-        case hellebore::Command::Help: terminalOutput = "help about status scanwifi scanble audit report"; break;
+        case hellebore::Command::Help: terminalOutput = "help about status scanwifi scanble netcheck audit report"; break;
         case hellebore::Command::About: terminalOutput = "HELLEBORE v" HELLEBORE_VERSION " Cardputer Adv"; break;
         case hellebore::Command::Status: terminalOutput = "heap " + String(ESP.getFreeHeap()) + " | " + statusLine; break;
         case hellebore::Command::Clear: terminalOutput = ""; break;
@@ -361,6 +405,7 @@ void runCommand() {
             if (cmd == "scanwifi") { runWifiScan(); terminalOutput = "Wi-Fi scan complete"; }
             else if (cmd == "scanble") { runBleScan(); terminalOutput = "BLE scan complete"; }
             else if (cmd == "audit") { runPassiveWifiAudit(); }
+            else if (cmd == "netcheck") { runActiveNetworkChecks(); }
             else if (cmd == "report") { terminalOutput = saveReport() ? "Report saved" : "Report failed; check SD"; }
             else terminalOutput = "Unknown command. Type help.";
             break;
