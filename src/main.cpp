@@ -192,6 +192,8 @@ bool mountSD() {
     return sdReady;
 }
 
+uint8_t companionLevel();
+
 String makeReport() {
     String report = "HELLEBORE REPORT\n";
     report += "Version: " HELLEBORE_VERSION "\n";
@@ -211,6 +213,9 @@ String makeReport() {
     report += "WiFi_AP_count: " + String(wifiCount) + "\n";
     report += "BLE_scan_complete: " + String(bleScanDone ? "yes" : "no") + "\n";
     report += "BLE_device_count: " + String(bleCount) + "\n";
+    report += "Companion_XP: " + String(companionXP) + "\n";
+    report += "Companion_Level: " + String(companionLevel()) + "\n";
+    report += "Companion_Mood: " + companionMood + "\n";
     report += "Passive_audit_complete: " + String(passiveAuditDone ? "yes" : "no") + "\n";
     report += "Passive_audit_beacons: " + String((uint32_t)frameBeacons) + "\n";
     report += "Passive_audit_probe_requests: " + String((uint32_t)frameProbeRequests) + "\n";
