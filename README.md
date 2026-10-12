@@ -46,7 +46,8 @@ The firmware binary is normally written to `.pio/build/cardputer_adv/firmware.bi
 - Use `W` / `S` to navigate and Enter to open.
 - In Wi-Fi or BLE discovery, press `R` to scan and `W` / `S` to scroll.
 - In Wireless Lab, press `1` for Wi-Fi exposure, `2` for duplicate-SSID clues, `3` for channel occupancy, or `4` for BLE inventory.
-- Press `E` to save a report where supported; press Esc or Backspace to return.
+- Press `E` to save TXT evidence; use `csv`, `json`, and `playbook` in the terminal for CSV/JSON exports and an offline defensive checklist. Press Esc or Backspace to return.
+- Press `T` on the dashboard for preferences: colorway, motion accents, and display brightness. Preferences persist to microSD when available.
 - In the terminal, type a command and press Enter.
 
 ## Validation status
