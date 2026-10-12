@@ -160,30 +160,75 @@ void drawDashboard() {
 }
 
 void drawDesk() {
-    header("LITTLE DESK BUDDY");
-    uint32_t seconds = (millis() / 1000) % 60;
-    uint32_t minutes = (millis() / 60000) % 60;
-    uint32_t hours = (millis() / 3600000) % 24;
+    header("HELLE / DESK MODE");
+    const uint32_t now = millis();
+    const uint32_t seconds = (now / 1000) % 60;
+    const uint32_t minutes = (now / 60000) % 60;
     M5Cardputer.Display.setTextColor(HB_CYAN, BG);
-    M5Cardputer.Display.setCursor(8, 25);
-    M5Cardputer.Display.printf("UPTIME  %02lu:%02lu:%02lu", (unsigned long)hours, (unsigned long)minutes, (unsigned long)seconds);
-    M5Cardputer.Display.drawRoundRect(7, 39, 226, 61, 10, HB_CYAN);
-    uint16_t fur = petMoodIndex == 3 ? HB_GOLD : (petMoodIndex == 2 ? MUTED : HB_CYAN);
-    int bob = animationsEnabled ? (int)((millis()/240)%3) - 1 : 0;
-    int px = 88, py = 47 + bob;
-    M5Cardputer.Display.fillRoundRect(px, py, 64, 44, 15, fur);
-    if (petAnimation % 5 == 2) {
-        M5Cardputer.Display.drawLine(px+17, py+17, px+23, py+17, BG);
-        M5Cardputer.Display.drawLine(px+41, py+17, px+47, py+17, BG);
-    } else {
-        M5Cardputer.Display.fillCircle(px+20, py+17, 3, BG);
-        M5Cardputer.Display.fillCircle(px+44, py+17, 3, BG);
+    M5Cardputer.Display.setCursor(8, 24);
+    M5Cardputer.Display.printf("HELLEBORE  //  COMPANION v0.2");
+    M5Cardputer.Display.setTextColor(MUTED, BG);
+    M5Cardputer.Display.setCursor(8, 34);
+    M5Cardputer.Display.printf("UP %02lu:%02lu   LV.%u   XP %lu", (unsigned long)minutes, (unsigned long)seconds, companionLevel(), (unsigned long)companionXP);
+
+    // Tiny starfield and orbital marks frame the mascot without hiding the face.
+    const int sx[] = {18, 34, 54, 185, 207, 220, 28, 211};
+    const int sy[] = {52, 76, 45, 48, 72, 54, 91, 92};
+    for (int i = 0; i < 8; ++i) {
+        uint16_t star = ((now / 700 + i) % 3 == 0) ? HB_GOLD : MUTED;
+        M5Cardputer.Display.drawPixel(sx[i], sy[i], star);
+        if (i % 3 == 0) M5Cardputer.Display.drawPixel(sx[i] + 1, sy[i], star);
     }
-    M5Cardputer.Display.drawLine(px+25, py+31, px+39, py+31, BG);
+    M5Cardputer.Display.drawRoundRect(7, 43, 226, 57, 10, PANEL_ACTIVE);
+    M5Cardputer.Display.drawRoundRect(9, 45, 222, 53, 9, HB_CYAN);
+
+    const uint16_t fur = petMoodIndex == 3 ? HB_GOLD : (petMoodIndex == 2 ? MUTED : HB_CYAN);
+    const int bob = animationsEnabled ? (int)((now / 300) % 3) - 1 : 0;
+    const int px = 91, py = 49 + bob;
+    // Antenna ears, body, feet, and face form a custom HELLEBORE mascot.
+    M5Cardputer.Display.drawLine(px + 13, py + 8, px + 8, py + 1, fur);
+    M5Cardputer.Display.drawLine(px + 51, py + 8, px + 56, py + 1, fur);
+    M5Cardputer.Display.fillCircle(px + 8, py + 1, 2, HB_GOLD);
+    M5Cardputer.Display.fillCircle(px + 56, py + 1, 2, HB_GOLD);
+    M5Cardputer.Display.fillRoundRect(px, py + 4, 64, 40, 13, fur);
+    M5Cardputer.Display.fillRoundRect(px + 10, py + 39, 13, 5, 2, fur);
+    M5Cardputer.Display.fillRoundRect(px + 41, py + 39, 13, 5, 2, fur);
+
+    const bool blink = animationsEnabled && ((now % 4300) < 150);
+    if (blink) {
+        M5Cardputer.Display.drawLine(px + 15, py + 19, px + 23, py + 19, BG);
+        M5Cardputer.Display.drawLine(px + 41, py + 19, px + 49, py + 19, BG);
+    } else {
+        M5Cardputer.Display.fillRoundRect(px + 15, py + 13, 8, 12, 3, BG);
+        M5Cardputer.Display.fillRoundRect(px + 41, py + 13, 8, 12, 3, BG);
+        M5Cardputer.Display.fillCircle(px + 19, py + 17, 2, WHITE);
+        M5Cardputer.Display.fillCircle(px + 45, py + 17, 2, WHITE);
+    }
+    if (petMoodIndex == 2) {
+        M5Cardputer.Display.drawLine(px + 26, py + 30, px + 38, py + 30, BG);
+    } else if (petMoodIndex == 3) {
+        M5Cardputer.Display.drawLine(px + 25, py + 28, px + 32, py + 33, BG);
+        M5Cardputer.Display.drawLine(px + 32, py + 33, px + 39, py + 28, BG);
+    } else {
+        M5Cardputer.Display.drawLine(px + 26, py + 30, px + 38, py + 30, BG);
+    }
+
+    // Speech bubble and tiny status light make the buddy feel present.
+    M5Cardputer.Display.fillRoundRect(151, 52, 70, 28, 5, PANEL);
+    M5Cardputer.Display.drawRoundRect(151, 52, 70, 28, 5, HB_GOLD);
+    M5Cardputer.Display.setTextColor(WHITE, PANEL);
+    M5Cardputer.Display.setCursor(157, 59);
+    M5Cardputer.Display.print(companionThought.substring(0, 10));
+    M5Cardputer.Display.setCursor(157, 69);
+    M5Cardputer.Display.print(companionThought.substring(10, 20));
+    M5Cardputer.Display.fillCircle(16, 111, 3, GREEN);
     M5Cardputer.Display.setTextColor(WHITE, BG);
-    M5Cardputer.Display.setCursor(10, 105);
-    M5Cardputer.Display.printf("HELLE / %s / LV.%u", petMoods[petMoodIndex], companionLevel());
-    footer("P PET  F FOCUS  M TOOLS  SPACE PLAY");
+    M5Cardputer.Display.setCursor(24, 107);
+    M5Cardputer.Display.printf("%s  /  XP %lu", petMoods[petMoodIndex], (unsigned long)companionXP);
+    M5Cardputer.Display.setTextColor(HB_GOLD, BG);
+    M5Cardputer.Display.setCursor(165, 107);
+    M5Cardputer.Display.print("H.B. 01");
+    footer("P INTERACT  F FOCUS  M TOOLS  SPACE PLAY");
 }
 
 void drawFocus() {
@@ -871,7 +916,7 @@ void loop() {
             dirty = true;
         } else if (screen == Screen::Focus) dirty = true;
     } else if (!focusRunning) focusLastTick = now;
-    if (screen == Screen::Desk && animationsEnabled && now - animationTick >= 180) {
+    if (screen == Screen::Desk && animationsEnabled && now - animationTick >= 650) {
         animationTick = now;
         ++petAnimation;
         dirty = true;
