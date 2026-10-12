@@ -28,6 +28,7 @@ bool blink = false;
 bool focusRunning = false;
 bool sdAvailable = false;
 bool showTools = false;
+bool focusScreen = false;
 String thought = "HELLEBORE IS READY.";
 
 void centerText(int y, const String& text, uint16_t color, uint8_t size=1) {
@@ -161,18 +162,18 @@ void handleKey(char c) {
   if (showTools) {
     if (c=='t'||c=='T'||c==0x1B) showTools=false;
     else if (c=='p'||c=='P') interact();
-    else if (c=='f'||c=='F') { showTools=false; focusRunning=false; focusTick=millis(); }
+    else if (c=='f'||c=='F') { showTools=false; focusScreen=true; focusRunning=false; focusTick=millis(); }
     else if (c=='s'||c=='S') saveState();
     return;
   }
-  if (focusRunning || focusLeft < 1500 || c==' ') {
+  if (focusScreen) {
     if (c==' ') { focusRunning=!focusRunning; focusTick=millis(); }
     else if (c=='r'||c=='R') { focusLeft=1500; focusRunning=false; }
-    else if (c==0x1B||c=='t'||c=='T') { focusRunning=false; showTools=false; focusLeft=1500; }
+    else if (c==0x1B||c=='t'||c=='T') { focusRunning=false; focusScreen=false; showTools=false; }
     return;
   }
   if (c=='p'||c=='P') interact();
-  else if (c=='f'||c=='F') { focusLeft=1500; focusRunning=false; focusTick=millis(); focusLeft=1500; lastFrame=0; showTools=false; }
+  else if (c=='f'||c=='F') { focusLeft=1500; focusRunning=false; focusScreen=true; focusTick=millis(); lastFrame=0; showTools=false; }
   else if (c=='m'||c=='M') showTools=true;
   else if (c=='t'||c=='T') showTools=true;
   else if (c=='s'||c=='S') saveState();
@@ -214,7 +215,7 @@ void loop() {
   if (now-lastFrame>180) {
     lastFrame=now;
     if (showTools) drawTools();
-    else if (focusRunning || focusLeft<1500) drawFocus();
+    else if (focusScreen) drawFocus();
     else drawHome(now);
   }
   delay(5);
