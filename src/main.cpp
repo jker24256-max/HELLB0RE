@@ -428,6 +428,42 @@ bool saveCsvReport() {
     return true;
 }
 
+String jsonEscape(String value) {
+    value.replace("\\", "\\\\");
+    value.replace("\"", "\\\"");
+    value.replace("\n", "\\n");
+    value.replace("\r", "\\r");
+    value.replace("\t", "\\t");
+    return value;
+}
+
+bool saveJsonReport() {
+    if (!mountSD()) { lastReport = "microSD unavailable"; statusLine = "Insert/verify microSD"; return false; }
+    String path = "/HELLEBORE.json";
+    if (SD.exists(path)) path = "/HELLEBORE-" + String(millis()) + ".json";
+    File file = SD.open(path, FILE_WRITE);
+    if (!file) { lastReport = "JSON open failed"; statusLine = "JSON open failed"; return false; }
+    String json = "{\n";
+    json += "  \"firmware_version\": \"" HELLEBORE_VERSION "\",\n";
+    json += "  \"uptime_ms\": " + String(millis() - bootMillis) + ",\n";
+    json += "  \"free_heap_bytes\": " + String(ESP.getFreeHeap()) + ",\n";
+    json += "  \"wifi_scan_complete\": " + String(wifiScanDone ? "true" : "false") + ",\n";
+    json += "  \"wifi_ap_count\": " + String(wifiCount) + ",\n";
+    json += "  \"ble_scan_complete\": " + String(bleScanDone ? "true" : "false") + ",\n";
+    json += "  \"ble_device_count\": " + String(bleCount) + ",\n";
+    json += "  \"passive_audit_complete\": " + String(passiveAuditDone ? "true" : "false") + ",\n";
+    json += "  \"deauth_frames_observed\": " + String((uint32_t)frameDeauth) + ",\n";
+    json += "  \"disassoc_frames_observed\": " + String((uint32_t)frameDisassoc) + ",\n";
+    json += "  \"network_check_summary\": \"" + jsonEscape(networkCheckSummary) + "\",\n";
+    json += "  \"companion\": { \"xp\": " + String(companionXP) + ", \"level\": " + String(companionLevel()) + ", \"mood\": \"" + jsonEscape(companionMood) + "\" },\n";
+    json += "  \"interpretation\": \"Observed frame counts and open networks are clues, not proof of a vulnerability.\"\n";
+    json += "}\n";
+    size_t written = file.print(json);
+    file.close();
+    if (written != json.length()) { lastReport = "Incomplete JSON write"; statusLine = "JSON incomplete"; return false; }
+    lastReport = "Saved " + path; statusLine = "JSON report saved"; return true;
+}
+
 bool runActiveNetworkChecks() {
     if (WiFi.status() != WL_CONNECTED) {
         networkCheckSummary = "Not connected to Wi-Fi";
@@ -602,7 +638,7 @@ void drawTerminal() {
 
 void runCommand() {
     switch (hellebore::parseCommand(std::string(terminalInput.c_str()))) {
-        case hellebore::Command::Help: terminalOutput = "help about status scanwifi scanble netcheck audit report"; break;
+        case hellebore::Command::Help: terminalOutput = "help about status scanwifi scanble netcheck audit report csv json playbook"; break;
         case hellebore::Command::About: terminalOutput = "HELLEBORE v" HELLEBORE_VERSION " Cardputer Adv"; break;
         case hellebore::Command::Status: terminalOutput = "heap " + String(ESP.getFreeHeap()) + " | " + statusLine; break;
         case hellebore::Command::Clear: terminalOutput = ""; break;
@@ -616,6 +652,8 @@ void runCommand() {
             else if (cmd == "netcheck") { runActiveNetworkChecks(); }
             else if (cmd == "report") { terminalOutput = saveReport() ? "Report saved" : "Report failed; check SD"; }
             else if (cmd == "csv") { terminalOutput = saveCsvReport() ? "CSV report saved" : "CSV report failed; check SD"; }
+            else if (cmd == "json") { terminalOutput = saveJsonReport() ? "JSON report saved" : "JSON report failed; check SD"; }
+            else if (cmd == "playbook") { terminalOutput = "PLAYBOOK: define scope; inventory AP/BLE; run netcheck on your own network; preserve TXT/CSV/JSON evidence; verify findings; recommend WPA2-AES/WPA3, updates, unique admin passwords, guest isolation. No disruptive tests."; }
             else terminalOutput = "Unknown command. Type help.";
             break;
         }
