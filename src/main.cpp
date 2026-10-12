@@ -69,6 +69,8 @@ const char* menuItems[] = {"WI-FI RADAR", "BLE RADAR", "SYSTEM CHECK", "EVIDENCE
 constexpr int MENU_COUNT = sizeof(menuItems) / sizeof(menuItems[0]);
 
 bool mountSD();
+uint8_t companionLevel();
+void saveCompanionProfile();
 
 void applyTheme() {
     if (alternateTheme) {
