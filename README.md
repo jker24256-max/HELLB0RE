@@ -1,66 +1,32 @@
 # HELLEBORE
 
-**A tiny desk companion for the M5Stack Cardputer Adv, with a friendly animated pet and focus timer.**
+A clean, minimal desk-companion firmware for the M5Stack Cardputer Adv. This is a fresh implementation, not the previous wireless-tool dashboard.
 
-> Repository name: `HELLB0RE` (zero in the repository name). Product name: **HELLEBORE**.
+## Current design
 
-NIGHTSHADE is a separate project and is intentionally untouched.
+- A custom HELLEBORE header and animated pixel mascot.
+- Simple mood cycling and interaction counter.
+- A 25-minute focus timer.
+- Optional microSD persistence for the tiny companion state.
+- A small utility screen, with a deliberate, calm cyan/gold visual identity.
 
-## Project principles
+## Keys
 
-- Implement real, testable functions rather than decorative menu entries.
-- Keep the dashboard keyboard-driven and responsive.
-- Store reports on microSD when available.
-- Use wireless assessment only on devices and networks you own or are explicitly authorized to test.
-- Report capability honestly: a cloud build is not hardware validation.
+- `P` — interact with Helle.
+- `F` — focus timer.
+- `Space` — start/pause the focus timer.
+- `R` — reset the focus timer.
+- `M` or `T` — utility screen.
+- `S` — save companion state to microSD.
 
-## Desk companion
+## Build and flash
 
-HELLEBORE boots into a little animated desk buddy named Helle. Press `P` or Space to interact and cycle moods/earn companion XP. Press `F` to open the 25-minute focus nook; Space starts/pauses the timer and `R` resets it. Press `M` to open the tools menu. Settings can still be opened with `T` from the tools dashboard.
+GitHub Actions builds the firmware for Cardputer Adv and merges the required binaries into `hellebore-full.bin`. Flash that merged image at `0x0` only after the latest workflow succeeds. This code has not been physically verified on hardware.
 
-## Current capabilities
+## Hardware note
 
-- Dashboard, terminal, device diagnostics, and microSD report export.
-- Wi-Fi access-point discovery: SSID, BSSID, RSSI, channel, and open/secured classification.
-- BLE advertisement discovery and device signal-strength inventory.
-- Wireless Lab audits based on real scan results:
-  - open-access-point exposure count;
-  - duplicate SSID / distinct-BSSID clues (a heuristic, not proof of a rogue AP);
-  - a channel occupancy snapshot from discovered APs (not a spectrum analyzer);
-  - BLE advertisement inventory.
-- Terminal commands: `help`, `about`, `status`, `clear`, `scanwifi`, `scanble`, `report`.
+The SD card is optional. Its CS pin configuration must be verified against the exact Cardputer Adv revision. The companion remains usable without a card.
 
-## Explicit limitations
+## Scope
 
-This is not a full Kali Linux replacement. The Cardputer Adv's ESP32-S3 is a 2.4 GHz Wi-Fi and BLE platform with constrained memory and radio capabilities. This firmware does not implement Wi-Fi jamming, disruptive deauthentication, credential capture, fake login portals, password cracking, or unauthorized exploitation. The current Wireless Lab provides passive discovery and non-disruptive defensive checks, not an offensive attack suite.
-
-## Build
-
-Install PlatformIO Core, then run:
-
-```sh
-pio run -e cardputer_adv
-```
-
-The firmware binary is normally written to `.pio/build/cardputer_adv/firmware.bin`. GitHub Actions compiles the firmware, creates a merged flash image, and uploads artifacts when the workflow succeeds.
-
-## Controls
-
-- Press `1`–`6` on the dashboard to open a module.
-- Use `W` / `S` to navigate and Enter to open.
-- In Wi-Fi or BLE discovery, press `R` to scan and `W` / `S` to scroll.
-- In Wireless Lab, press `1` for Wi-Fi exposure, `2` for duplicate-SSID clues, `3` for channel occupancy, or `4` for BLE inventory.
-- Press `E` to save TXT evidence; use `csv`, `json`, and `playbook` in the terminal for CSV/JSON exports and an offline defensive checklist. Press Esc or Backspace to return.
-- Press `T` on the dashboard for preferences: colorway, motion accents, and display brightness. Preferences persist to microSD when available.
-- In the terminal, type a command and press Enter.
-
-## Validation status
-
-A successful CI compile verifies that the firmware builds, not that it behaves correctly on the physical Cardputer Adv. SD-card pin mapping and all runtime behavior still require device testing.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/HARDWARE.md](docs/HARDWARE.md), and [docs/FLASHING.md](docs/FLASHING.md).
-
-
-## Feature status and roadmap
-
-See [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) for implemented capabilities, planned modules, hardware limits, and acceptance-test status.
+HELLEBORE is a desk companion first. This clean-slate revision intentionally omits the previous wireless reconnaissance menus and feature sprawl.
