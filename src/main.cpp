@@ -1,932 +1,221 @@
+#include <Arduino.h>
 #include <M5Cardputer.h>
 #include <WiFi.h>
-#include <WiFiClient.h>
-#include <ESPmDNS.h>
-#include <BLEDevice.h>
-#include <BLEScan.h>
-#include <BLEAdvertisedDevice.h>
-#include <SPI.h>
 #include <SD.h>
-#include <time.h>
-#include <string>
-#include <esp_wifi.h>
-#include "core/CommandParser.h"
-
-#ifndef HELLEBORE_VERSION
-#define HELLEBORE_VERSION "0.1.0"
-#endif
-
-// M5Stack Cardputer Adv microSD bus. Keep configurable for board revisions.
-#ifndef HELLEBORE_SD_CS
-#define HELLEBORE_SD_CS 12
-#define HELLEBORE_SD_SCK 40
-#define HELLEBORE_SD_MISO 39
-#define HELLEBORE_SD_MOSI 14
-#endif
+#include <SPI.h>
 
 namespace {
-enum class Screen : uint8_t { Desk, Focus, Dashboard, Wifi, Ble, Diagnostics, Reports, AttackLab, Terminal, Companion, Settings };
-Screen screen = Screen::Dashboard;
-int selection = 0;
-int scroll = 0;
-String terminalInput;
-String terminalOutput = "HELLEBORE ready. Type help.";
-String statusLine = "Ready";
-bool dirty = true;
-bool sdReady = false;
-bool bleReady = false;
-bool wifiScanDone = false;
-bool bleScanDone = false;
-bool passiveAuditDone = false;
-bool passiveAuditRunning = false;
-volatile uint32_t frameBeacons = 0, frameProbeRequests = 0, frameProbeResponses = 0;
-volatile uint32_t frameDeauth = 0, frameDisassoc = 0, frameAuth = 0, frameData = 0, frameOtherMgmt = 0;
-volatile uint8_t observedChannel = 0;
-int wifiCount = 0;
-int bleCount = 0;
-uint32_t bootMillis = 0;
-uint32_t lastScanMillis = 0;
-String lastReport = "No report saved yet";
-String networkCheckSummary = "Not run";
-uint32_t companionXP = 0;
-String companionMood = "CURIOUS";
-String companionThought = "Glad you are here.";
-uint32_t focusRemainingMs = 25UL * 60UL * 1000UL;
-uint32_t focusLastTick = 0;
+constexpr char VERSION[] = "0.1.0";
+constexpr uint16_t BG = 0x0841;
+constexpr uint16_t PANEL = 0x10A2;
+constexpr uint16_t CYAN = 0x07FF;
+constexpr uint16_t GOLD = 0xFDE0;
+constexpr uint16_t WHITE = 0xFFFF;
+constexpr uint16_t MUTED = 0x7BEF;
+constexpr uint16_t GREEN = 0x07E0;
+constexpr uint16_t RED = 0xF800;
+
+enum class Mood : uint8_t { Calm, Curious, Happy, Sleepy };
+Mood mood = Mood::Calm;
+uint32_t bootAt = 0;
+uint32_t lastFrame = 0;
+uint32_t lastBlink = 0;
+uint32_t lastInteract = 0;
+uint32_t focusLeft = 25UL * 60UL;
+uint32_t focusTick = 0;
+uint16_t interactions = 0;
+bool blink = false;
 bool focusRunning = false;
-uint8_t petAnimation = 0;
-uint8_t petMoodIndex = 0;
-const char* petMoods[] = {"CHILL", "CURIOUS", "SLEEPY", "HAPPY", "FOCUSED"};
-bool alternateTheme = false;
-bool animationsEnabled = true;
-uint8_t displayBrightness = 100;
-int settingsSelection = 0;
-uint32_t animationTick = 0;
-uint16_t BG = 0x0812, PANEL = 0x10A2, PANEL_ACTIVE = 0x253F;
-uint16_t HB_CYAN = 0x07FF, WHITE = 0xFFFF, MUTED = 0x7BEF, HB_GOLD = 0xFDE0, RED = 0xF986, GREEN = 0x87F0;
+bool sdAvailable = false;
+bool showTools = false;
+String thought = "HELLEBORE IS READY.";
 
-const char* menuItems[] = {"WI-FI RADAR", "BLE RADAR", "SYSTEM CHECK", "EVIDENCE VAULT", "WIRELESS LAB", "COMMAND DECK"};
-constexpr int MENU_COUNT = sizeof(menuItems) / sizeof(menuItems[0]);
-
-bool mountSD();
-uint8_t companionLevel();
-void saveCompanionProfile();
-
-void applyTheme() {
-    if (alternateTheme) {
-        BG = 0x0000; PANEL = 0x2104; PANEL_ACTIVE = 0x4208;
-        HB_CYAN = 0x07E0; HB_GOLD = 0xFFE0; WHITE = 0xFFFF; MUTED = 0xA514;
-        RED = 0xF800; GREEN = 0x07E0;
-    } else {
-        BG = 0x0812; PANEL = 0x10A2; PANEL_ACTIVE = 0x253F;
-        HB_CYAN = 0x07FF; HB_GOLD = 0xFDE0; WHITE = 0xFFFF; MUTED = 0x7BEF;
-        RED = 0xF986; GREEN = 0x87F0;
-    }
+void centerText(int y, const String& text, uint16_t color, uint8_t size=1) {
+  M5Cardputer.Display.setTextSize(size);
+  M5Cardputer.Display.setTextColor(color, BG);
+  int16_t x = (240 - (int16_t)text.length() * 6 * size) / 2;
+  if (x < 2) x = 2;
+  M5Cardputer.Display.setCursor(x, y);
+  M5Cardputer.Display.print(text);
+  M5Cardputer.Display.setTextSize(1);
 }
 
-void saveSettings() {
-    if (!mountSD()) return;
-    SD.remove("/HELLEBORE.SET.tmp");
-    File file = SD.open("/HELLEBORE.SET.tmp", FILE_WRITE);
-    if (!file) return;
-    file.println("theme=" + String(alternateTheme ? 1 : 0));
-    file.println("animations=" + String(animationsEnabled ? 1 : 0));
-    file.println("brightness=" + String(displayBrightness));
-    file.close();
-    SD.remove("/HELLEBORE.SET");
-    SD.rename("/HELLEBORE.SET.tmp", "/HELLEBORE.SET");
+void saveState() {
+  if (!sdAvailable) return;
+  File f = SD.open("/HELLEBORE.DAT", FILE_WRITE);
+  if (!f) return;
+  f.printf("%u,%u\n", (unsigned)interactions, (unsigned)mood);
+  f.close();
 }
 
-void loadSettings() {
-    if (!mountSD() || !SD.exists("/HELLEBORE.SET")) return;
-    File file = SD.open("/HELLEBORE.SET", FILE_READ);
-    if (!file) return;
-    while (file.available()) {
-        String line = file.readStringUntil('\n'); line.trim();
-        if (line.startsWith("theme=")) alternateTheme = line.substring(6).toInt() != 0;
-        else if (line.startsWith("animations=")) animationsEnabled = line.substring(11).toInt() != 0;
-        else if (line.startsWith("brightness=")) displayBrightness = (uint8_t)constrain(line.substring(11).toInt(), 20, 255);
-    }
-    file.close();
-    applyTheme();
+void loadState() {
+  sdAvailable = SD.begin(12, SPI, 25000000);
+  if (!sdAvailable) return;
+  File f = SD.open("/HELLEBORE.DAT", FILE_READ);
+  if (!f) return;
+  interactions = (uint16_t)f.parseInt();
+  if (f.read() == ',') mood = (Mood)constrain(f.parseInt(), 0, 3);
+  f.close();
 }
 
-void header(const char* title) {
-    M5Cardputer.Display.fillScreen(BG);
-    M5Cardputer.Display.fillRect(0, 0, 240, 20, 0x18E3);
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setTextColor(HB_GOLD, 0x18E3);
-    M5Cardputer.Display.setCursor(6, 6);
-    M5Cardputer.Display.print("HELLEBORE");
-    M5Cardputer.Display.setTextColor(WHITE, 0x18E3);
-    M5Cardputer.Display.setCursor(139, 6);
-    M5Cardputer.Display.print(title);
+void mascot(int x, int y, uint32_t now) {
+  const int bob = (int)((now / 260) % 3) - 1;
+  y += bob;
+  const uint16_t body = mood == Mood::Happy ? GOLD : (mood == Mood::Sleepy ? MUTED : CYAN);
+  // HELLEBORE's little antenna-eared companion, drawn natively for 240x135.
+  M5Cardputer.Display.drawLine(x+15,y+13,x+8,y+3,body);
+  M5Cardputer.Display.drawLine(x+49,y+13,x+56,y+3,body);
+  M5Cardputer.Display.fillCircle(x+8,y+3,2,GOLD);
+  M5Cardputer.Display.fillCircle(x+56,y+3,2,GOLD);
+  M5Cardputer.Display.fillRoundRect(x,y+9,64,42,14,body);
+  M5Cardputer.Display.fillRoundRect(x+10,y+47,14,5,2,body);
+  M5Cardputer.Display.fillRoundRect(x+40,y+47,14,5,2,body);
+  if (blink) {
+    M5Cardputer.Display.drawLine(x+15,y+27,x+24,y+27,BG);
+    M5Cardputer.Display.drawLine(x+40,y+27,x+49,y+27,BG);
+  } else {
+    M5Cardputer.Display.fillRoundRect(x+16,y+20,7,12,3,BG);
+    M5Cardputer.Display.fillRoundRect(x+41,y+20,7,12,3,BG);
+    M5Cardputer.Display.fillCircle(x+19,y+23,2,WHITE);
+    M5Cardputer.Display.fillCircle(x+44,y+23,2,WHITE);
+  }
+  if (mood == Mood::Happy) {
+    M5Cardputer.Display.drawLine(x+25,y+39,x+32,y+43,BG);
+    M5Cardputer.Display.drawLine(x+32,y+43,x+39,y+39,BG);
+  } else {
+    M5Cardputer.Display.drawLine(x+26,y+40,x+38,y+40,BG);
+  }
 }
 
-void footer(const char* text) {
-    M5Cardputer.Display.fillRect(0, 121, 240, 14, 0x10A2);
-    M5Cardputer.Display.setTextColor(MUTED, 0x10A2);
-    M5Cardputer.Display.setCursor(5, 124);
-    M5Cardputer.Display.print(text);
-}
-
-void textLine(int y, const String& text, uint16_t color = WHITE) {
-    M5Cardputer.Display.setTextColor(color, BG);
-    M5Cardputer.Display.setCursor(7, y);
-    M5Cardputer.Display.print(text.substring(0, 38));
-}
-
-void drawDashboard() {
-    header("FIELD CONSOLE");
-    if (animationsEnabled) { M5Cardputer.Display.drawFastHLine((millis()/18)%230 + 4, 21, 6, HB_CYAN); }
-    M5Cardputer.Display.setTextColor(HB_CYAN, BG);
-    M5Cardputer.Display.setCursor(7, 24);
-    M5Cardputer.Display.print("FIELD OPS  /  OFFLINE-FIRST");
-    M5Cardputer.Display.setTextColor(MUTED, BG);
-    M5Cardputer.Display.setCursor(7, 35);
-    M5Cardputer.Display.printf("UP %lus  HEAP %uK  SD %s", (unsigned long)((millis()-bootMillis)/1000), (unsigned)(ESP.getFreeHeap()/1024), sdReady ? "READY" : "--");
-    for (int i = 0; i < MENU_COUNT; ++i) {
-        int x = 6 + (i % 2) * 117;
-        int y = 48 + (i / 2) * 22;
-        bool active = i == selection;
-        uint16_t fill = active ? PANEL_ACTIVE : PANEL;
-        M5Cardputer.Display.fillRoundRect(x, y, 111, 19, 4, fill);
-        M5Cardputer.Display.drawRoundRect(x, y, 111, 19, 4, active ? HB_CYAN : 0x4208);
-        M5Cardputer.Display.setTextColor(active ? HB_GOLD : WHITE, fill);
-        M5Cardputer.Display.setCursor(x + 5, y + 6);
-        M5Cardputer.Display.printf("%d %s", i + 1, menuItems[i]);
-    }
-    footer("1-6 OPEN  P HELLE  T SETTINGS  W/S MOVE");
-}
-
-void drawDesk() {
-    header("HELLE / DESK MODE");
-    const uint32_t now = millis();
-    const uint32_t seconds = (now / 1000) % 60;
-    const uint32_t minutes = (now / 60000) % 60;
-    M5Cardputer.Display.setTextColor(HB_CYAN, BG);
-    M5Cardputer.Display.setCursor(8, 24);
-    M5Cardputer.Display.printf("HELLEBORE  //  COMPANION v0.2");
-    M5Cardputer.Display.setTextColor(MUTED, BG);
-    M5Cardputer.Display.setCursor(8, 34);
-    M5Cardputer.Display.printf("UP %02lu:%02lu   LV.%u   XP %lu", (unsigned long)minutes, (unsigned long)seconds, companionLevel(), (unsigned long)companionXP);
-
-    // Tiny starfield and orbital marks frame the mascot without hiding the face.
-    const int sx[] = {18, 34, 54, 185, 207, 220, 28, 211};
-    const int sy[] = {52, 76, 45, 48, 72, 54, 91, 92};
-    for (int i = 0; i < 8; ++i) {
-        uint16_t star = ((now / 700 + i) % 3 == 0) ? HB_GOLD : MUTED;
-        M5Cardputer.Display.drawPixel(sx[i], sy[i], star);
-        if (i % 3 == 0) M5Cardputer.Display.drawPixel(sx[i] + 1, sy[i], star);
-    }
-    M5Cardputer.Display.drawRoundRect(7, 43, 226, 57, 10, PANEL_ACTIVE);
-    M5Cardputer.Display.drawRoundRect(9, 45, 222, 53, 9, HB_CYAN);
-
-    const uint16_t fur = petMoodIndex == 3 ? HB_GOLD : (petMoodIndex == 2 ? MUTED : HB_CYAN);
-    const int bob = animationsEnabled ? (int)((now / 300) % 3) - 1 : 0;
-    const int px = 91, py = 49 + bob;
-    // Antenna ears, body, feet, and face form a custom HELLEBORE mascot.
-    M5Cardputer.Display.drawLine(px + 13, py + 8, px + 8, py + 1, fur);
-    M5Cardputer.Display.drawLine(px + 51, py + 8, px + 56, py + 1, fur);
-    M5Cardputer.Display.fillCircle(px + 8, py + 1, 2, HB_GOLD);
-    M5Cardputer.Display.fillCircle(px + 56, py + 1, 2, HB_GOLD);
-    M5Cardputer.Display.fillRoundRect(px, py + 4, 64, 40, 13, fur);
-    M5Cardputer.Display.fillRoundRect(px + 10, py + 39, 13, 5, 2, fur);
-    M5Cardputer.Display.fillRoundRect(px + 41, py + 39, 13, 5, 2, fur);
-
-    const bool blink = animationsEnabled && ((now % 4300) < 150);
-    if (blink) {
-        M5Cardputer.Display.drawLine(px + 15, py + 19, px + 23, py + 19, BG);
-        M5Cardputer.Display.drawLine(px + 41, py + 19, px + 49, py + 19, BG);
-    } else {
-        M5Cardputer.Display.fillRoundRect(px + 15, py + 13, 8, 12, 3, BG);
-        M5Cardputer.Display.fillRoundRect(px + 41, py + 13, 8, 12, 3, BG);
-        M5Cardputer.Display.fillCircle(px + 19, py + 17, 2, WHITE);
-        M5Cardputer.Display.fillCircle(px + 45, py + 17, 2, WHITE);
-    }
-    if (petMoodIndex == 2) {
-        M5Cardputer.Display.drawLine(px + 26, py + 30, px + 38, py + 30, BG);
-    } else if (petMoodIndex == 3) {
-        M5Cardputer.Display.drawLine(px + 25, py + 28, px + 32, py + 33, BG);
-        M5Cardputer.Display.drawLine(px + 32, py + 33, px + 39, py + 28, BG);
-    } else {
-        M5Cardputer.Display.drawLine(px + 26, py + 30, px + 38, py + 30, BG);
-    }
-
-    // Speech bubble and tiny status light make the buddy feel present.
-    M5Cardputer.Display.fillRoundRect(151, 52, 70, 28, 5, PANEL);
-    M5Cardputer.Display.drawRoundRect(151, 52, 70, 28, 5, HB_GOLD);
-    M5Cardputer.Display.setTextColor(WHITE, PANEL);
-    M5Cardputer.Display.setCursor(157, 59);
-    M5Cardputer.Display.print(companionThought.substring(0, 10));
-    M5Cardputer.Display.setCursor(157, 69);
-    M5Cardputer.Display.print(companionThought.substring(10, 20));
-    M5Cardputer.Display.fillCircle(16, 111, 3, GREEN);
-    M5Cardputer.Display.setTextColor(WHITE, BG);
-    M5Cardputer.Display.setCursor(24, 107);
-    M5Cardputer.Display.printf("%s  /  XP %lu", petMoods[petMoodIndex], (unsigned long)companionXP);
-    M5Cardputer.Display.setTextColor(HB_GOLD, BG);
-    M5Cardputer.Display.setCursor(165, 107);
-    M5Cardputer.Display.print("H.B. 01");
-    footer("P INTERACT  F FOCUS  M TOOLS  SPACE PLAY");
+void drawHome(uint32_t now) {
+  M5Cardputer.Display.fillScreen(BG);
+  M5Cardputer.Display.fillRect(0,0,240,19,PANEL);
+  M5Cardputer.Display.setTextColor(GOLD,PANEL);
+  M5Cardputer.Display.setCursor(7,6);
+  M5Cardputer.Display.print("HELLEBORE");
+  M5Cardputer.Display.setTextColor(MUTED,PANEL);
+  M5Cardputer.Display.setCursor(174,6);
+  M5Cardputer.Display.print("DESK PET");
+  M5Cardputer.Display.setTextColor(CYAN,BG);
+  M5Cardputer.Display.setCursor(8,25);
+  M5Cardputer.Display.printf("UP %02lu:%02lu  V%s", (unsigned long)((now-bootAt)/60000), (unsigned long)((now-bootAt)/1000%60), VERSION);
+  M5Cardputer.Display.drawRoundRect(6,35,228,65,8,CYAN);
+  // Small decorative star field.
+  for (int i=0;i<9;i++) {
+    int x=(i*29+17)%228+6, y=40+(i*13)%54;
+    uint16_t c=((now/900+i)%4==0)?GOLD:MUTED;
+    M5Cardputer.Display.drawPixel(x,y,c);
+  }
+  mascot(88,42,now);
+  M5Cardputer.Display.fillRoundRect(8,103,224,16,4,PANEL);
+  M5Cardputer.Display.setTextColor(WHITE,PANEL);
+  M5Cardputer.Display.setCursor(14,108);
+  M5Cardputer.Display.printf("MOOD %s  /  HELLO #%u", mood==Mood::Calm?"CALM":mood==Mood::Curious?"CURIOUS":mood==Mood::Happy?"HAPPY":"SLEEPY", interactions);
+  M5Cardputer.Display.fillCircle(222,27,3,sdAvailable?GREEN:RED);
+  M5Cardputer.Display.fillRect(0,122,240,13,PANEL);
+  M5Cardputer.Display.setTextColor(MUTED,PANEL);
+  M5Cardputer.Display.setCursor(5,125);
+  M5Cardputer.Display.print("P PET  F FOCUS  M MENU  T TOOLS");
 }
 
 void drawFocus() {
-    header("FOCUS NOOK");
-    M5Cardputer.Display.setTextColor(HB_GOLD, BG);
-    M5Cardputer.Display.setTextSize(2);
-    M5Cardputer.Display.setCursor(45, 38);
-    M5Cardputer.Display.printf("%02lu:%02lu", (unsigned long)(focusRemainingMs/60000), (unsigned long)((focusRemainingMs/1000)%60));
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.drawRoundRect(14, 67, 212, 10, 4, HB_CYAN);
-    uint32_t elapsed = 25UL*60UL*1000UL - focusRemainingMs;
-    int width = (int)(elapsed * 206UL / (25UL*60UL*1000UL));
-    M5Cardputer.Display.fillRoundRect(17, 70, width, 4, 2, HB_CYAN);
-    textLine(87, focusRunning ? "FOCUSING... YOU'VE GOT THIS." : "A little progress still counts.", WHITE);
-    textLine(101, "Take a break when the timer ends.", MUTED);
-    footer("SPACE START/PAUSE  R RESET  ESC HOME");
+  M5Cardputer.Display.fillScreen(BG);
+  M5Cardputer.Display.fillRect(0,0,240,19,PANEL);
+  M5Cardputer.Display.setTextColor(GOLD,PANEL);
+  M5Cardputer.Display.setCursor(7,6);
+  M5Cardputer.Display.print("HELLEBORE / FOCUS");
+  centerText(34,"FOCUS NOOK",CYAN);
+  centerText(50,String(focusLeft/60/10)+String((focusLeft/60)%10)+":"+String((focusLeft%60)/10)+String(focusLeft%10),GOLD,2);
+  M5Cardputer.Display.drawRoundRect(15,79,210,9,4,CYAN);
+  uint32_t done=1500UL-focusLeft;
+  int w=(int)(done*204UL/1500UL);
+  M5Cardputer.Display.fillRoundRect(18,82,w,3,2,CYAN);
+  centerText(96,focusRunning?"YOU'RE DOING GREAT":"SMALL STEPS COUNT",WHITE);
+  centerText(111,"SPACE START/PAUSE  R RESET",MUTED);
 }
 
-void petAction() {
-    ++companionXP;
-    petMoodIndex = (petMoodIndex + 1) % 5;
-    petAnimation = (petAnimation + 1) % 10;
-    companionMood = petMoods[petMoodIndex];
-    const char* thoughts[] = {"One step at a time.", "What's that over there?", "Tiny recharge time.", "You make a good team.", "Focus mode: let's go."};
-    companionThought = thoughts[petMoodIndex];
-    saveCompanionProfile();
-    dirty = true;
+void drawTools() {
+  M5Cardputer.Display.fillScreen(BG);
+  M5Cardputer.Display.fillRect(0,0,240,19,PANEL);
+  M5Cardputer.Display.setTextColor(GOLD,PANEL);
+  M5Cardputer.Display.setCursor(7,6);
+  M5Cardputer.Display.print("HELLEBORE / TOOLS");
+  centerText(30,"A TINY DESK COMPANION",CYAN);
+  centerText(48,"P  Interact with Helle",WHITE);
+  centerText(63,"F  Focus timer",WHITE);
+  centerText(78,"T  Return to desk",WHITE);
+  centerText(93,"S  Save companion state",WHITE);
+  centerText(111,sdAvailable?"MICROSD READY":"MICROSD NOT MOUNTED",sdAvailable?GREEN:RED);
 }
 
-void drawSettings() {
-    header("PREFERENCES");
-    const char* labels[] = {"Colorway", "Motion accents", "Display brightness", "Save preferences"};
-    String values[] = {alternateTheme ? "LIME / MONO" : "CYAN / GOLD", animationsEnabled ? "ON" : "OFF", String(displayBrightness), "WRITE TO SD"};
-    for (int i=0; i<4; ++i) {
-        int y = 31 + i*21;
-        bool active = settingsSelection == i;
-        M5Cardputer.Display.fillRoundRect(7, y, 226, 18, 3, active ? PANEL_ACTIVE : PANEL);
-        M5Cardputer.Display.drawRoundRect(7, y, 226, 18, 3, active ? HB_CYAN : 0x4208);
-        M5Cardputer.Display.setTextColor(active ? HB_GOLD : WHITE, active ? PANEL_ACTIVE : PANEL);
-        M5Cardputer.Display.setCursor(13, y+6); M5Cardputer.Display.print(labels[i]);
-        M5Cardputer.Display.setCursor(157, y+6); M5Cardputer.Display.print(values[i]);
-    }
-    textLine(116, "A/D or W/S select  ENTER change", MUTED);
-    footer("T BACK  SETTINGS SAVE TO microSD");
+void interact() {
+  ++interactions;
+  mood = (Mood)(((uint8_t)mood + 1) % 4);
+  const char* lines[] = {"HELLEBORE IS READY.","OH? WHAT'S THAT?","YOU'RE DOING GREAT!","TINY REST TIME..."};
+  thought = lines[(uint8_t)mood];
+  lastInteract = millis();
+  saveState();
 }
 
-void updateSetting(int direction) {
-    if (settingsSelection == 0) { alternateTheme = !alternateTheme; applyTheme(); }
-    else if (settingsSelection == 1) animationsEnabled = !animationsEnabled;
-    else if (settingsSelection == 2) {
-        int next = (int)displayBrightness + direction * 20;
-        displayBrightness = (uint8_t)constrain(next, 20, 255);
-        M5Cardputer.Display.setBrightness(displayBrightness);
-    } else saveSettings();
-    dirty = true;
+void handleKey(char c) {
+  if (showTools) {
+    if (c=='t'||c=='T'||c==0x1B) showTools=false;
+    else if (c=='p'||c=='P') interact();
+    else if (c=='f'||c=='F') { showTools=false; focusRunning=false; focusTick=millis(); }
+    else if (c=='s'||c=='S') saveState();
+    return;
+  }
+  if (focusRunning || focusLeft < 1500 || c==' ') {
+    if (c==' ') { focusRunning=!focusRunning; focusTick=millis(); }
+    else if (c=='r'||c=='R') { focusLeft=1500; focusRunning=false; }
+    else if (c==0x1B||c=='t'||c=='T') { focusRunning=false; showTools=false; focusLeft=1500; }
+    return;
+  }
+  if (c=='p'||c=='P') interact();
+  else if (c=='f'||c=='F') { focusLeft=1500; focusRunning=false; focusTick=millis(); focusLeft=1500; lastFrame=0; showTools=false; }
+  else if (c=='m'||c=='M') showTools=true;
+  else if (c=='t'||c=='T') showTools=true;
+  else if (c=='s'||c=='S') saveState();
 }
 
-void drawWifi() {
-    header("WI-FI");
-    textLine(24, "2.4 GHz access point discovery", HB_CYAN);
-    textLine(36, wifiScanDone ? "Scan complete" : "Press R to scan", wifiScanDone ? GREEN : HB_GOLD);
-    if (!wifiScanDone) {
-        textLine(51, "Press R to discover nearby APs");
-    } else if (wifiCount == 0) {
-        textLine(51, "No networks found (or scan failed)", HB_GOLD);
-    } else {
-        int total = WiFi.scanComplete();
-        int maxRows = 4;
-        int start = scroll;
-        for (int i = 0; i < maxRows && start + i < total; ++i) {
-            int idx = start + i;
-            String ssid = WiFi.SSID(idx);
-            if (ssid.length() == 0) ssid = "<hidden SSID>";
-            String row = ssid.substring(0, 13) + " " + String(WiFi.RSSI(idx)) + "dBm";
-            row += " ch" + String(WiFi.channel(idx));
-            wifi_auth_mode_t auth = WiFi.encryptionType(idx);
-            row += (auth == WIFI_AUTH_OPEN) ? " OPEN" : " SEC";
-            textLine(51 + i * 14, row, auth == WIFI_AUTH_OPEN ? RED : WHITE);
-        }
-        if (total > maxRows) textLine(109, "W/S scroll results", MUTED);
-    }
-    footer("R scan  W/S scroll  E export  Q back");
-}
-
-void runWifiScan() {
-    statusLine = "Scanning Wi-Fi...";
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect(false, false);
-    int found = WiFi.scanNetworks(false, true, false, 300);
-    wifiCount = found > 0 ? found : 0;
-    wifiScanDone = true;
-    scroll = 0;
-    lastScanMillis = millis();
-    statusLine = "Wi-Fi scan finished";
-    dirty = true;
-}
-
-void drawBle() {
-    header("BLE");
-    textLine(24, "Bluetooth Low Energy discovery", HB_CYAN);
-    textLine(37, bleScanDone ? "Scan complete" : "Press R to scan", bleScanDone ? GREEN : HB_GOLD);
-    if (!bleReady) {
-        textLine(52, "BLE stack unavailable", RED);
-    } else if (!bleScanDone) {
-        textLine(52, "Scans nearby advertisements");
-        textLine(66, "Names may not be broadcast", MUTED);
-    } else if (bleCount == 0) {
-        textLine(52, "No advertisements found", HB_GOLD);
-    } else {
-        BLEScan* scanner = BLEDevice::getScan();
-        BLEScanResults results = scanner->getResults();
-        int total = results.getCount();
-        for (int i = 0; i < 4 && scroll + i < total; ++i) {
-            BLEAdvertisedDevice device = results.getDevice(scroll + i);
-            String name = device.haveName() ? String(device.getName().c_str()) : String("(unnamed)");
-            String row = name.substring(0, 13) + " " + String(device.getRSSI()) + "dBm";
-            textLine(52 + i * 14, row);
-        }
-        if (total > 4) textLine(109, "W/S scroll results", MUTED);
-    }
-    footer("R scan  W/S scroll  E export  ESC back");
-}
-
-void runBleScan() {
-    if (!bleReady) {
-        BLEDevice::init("HELLEBORE");
-        bleReady = true;
-    }
-    statusLine = "Scanning BLE for 4s...";
-    BLEScan* scanner = BLEDevice::getScan();
-    scanner->setActiveScan(true);
-    scanner->setInterval(100);
-    scanner->setWindow(80);
-    BLEScanResults results = scanner->start(4, false);
-    bleCount = results.getCount();
-    bleScanDone = true;
-    scroll = 0;
-    statusLine = "BLE scan finished";
-    dirty = true;
-}
-
-bool mountSD() {
-    if (sdReady) return true;
-    SPI.begin(HELLEBORE_SD_SCK, HELLEBORE_SD_MISO, HELLEBORE_SD_MOSI, HELLEBORE_SD_CS);
-    sdReady = SD.begin(HELLEBORE_SD_CS, SPI, 10000000);
-    return sdReady;
-}
-
-void loadCompanionProfile() {
-    if (!mountSD() || !SD.exists("/HELLEBORE.CFG")) return;
-    File file = SD.open("/HELLEBORE.CFG", FILE_READ);
-    if (!file) return;
-    while (file.available()) {
-        String line = file.readStringUntil('\n');
-        line.trim();
-        if (line.startsWith("xp=")) companionXP = (uint32_t)line.substring(3).toInt();
-        else if (line.startsWith("mood=")) companionMood = line.substring(5);
-        else if (line.startsWith("thought=")) companionThought = line.substring(8);
-    }
-    file.close();
-}
-
-void saveCompanionProfile() {
-    if (!mountSD()) return;
-    SD.remove("/HELLEBORE.TMP");
-    File file = SD.open("/HELLEBORE.TMP", FILE_WRITE);
-    if (!file) return;
-    file.println("xp=" + String(companionXP));
-    file.println("mood=" + companionMood);
-    String safeThought = companionThought;
-    safeThought.replace("\n", " ");
-    file.println("thought=" + safeThought);
-    file.close();
-    SD.remove("/HELLEBORE.CFG");
-    SD.rename("/HELLEBORE.TMP", "/HELLEBORE.CFG");
-}
-
-uint8_t companionLevel();
-
-String makeReport() {
-    String report = "HELLEBORE REPORT\n";
-    report += "Version: " HELLEBORE_VERSION "\n";
-    report += "Companion_XP: " + String(companionXP) + "\n";
-    report += "Companion_Level: " + String(companionLevel()) + "\n";
-    report += "Uptime_ms: " + String(millis() - bootMillis) + "\n";
-    report += "Free_heap: " + String(ESP.getFreeHeap()) + "\n";
-    report += "Network_check: " + networkCheckSummary + "\n";
-    if (WiFi.status() == WL_CONNECTED) {
-        report += "Connected_SSID: " + WiFi.SSID() + "\n";
-        report += "Local_IP: " + WiFi.localIP().toString() + "\n";
-        report += "Gateway_IP: " + WiFi.gatewayIP().toString() + "\n";
-        report += "Subnet: " + WiFi.subnetMask().toString() + "\n";
-        report += "WiFi_RSSI: " + String(WiFi.RSSI()) + "\n";
-    }
-    report += "WiFi_scan_complete: " + String(wifiScanDone ? "yes" : "no") + "\n";
-    report += "WiFi_AP_count: " + String(wifiCount) + "\n";
-    report += "BLE_scan_complete: " + String(bleScanDone ? "yes" : "no") + "\n";
-    report += "BLE_device_count: " + String(bleCount) + "\n";
-    report += "Companion_XP: " + String(companionXP) + "\n";
-    report += "Companion_Level: " + String(companionLevel()) + "\n";
-    report += "Companion_Mood: " + companionMood + "\n";
-    report += "Passive_audit_complete: " + String(passiveAuditDone ? "yes" : "no") + "\n";
-    report += "Passive_audit_beacons: " + String((uint32_t)frameBeacons) + "\n";
-    report += "Passive_audit_probe_requests: " + String((uint32_t)frameProbeRequests) + "\n";
-    report += "Passive_audit_probe_responses: " + String((uint32_t)frameProbeResponses) + "\n";
-    report += "Passive_audit_deauth_frames: " + String((uint32_t)frameDeauth) + "\n";
-    report += "Passive_audit_disassoc_frames: " + String((uint32_t)frameDisassoc) + "\n";
-    report += "Passive_audit_auth_frames: " + String((uint32_t)frameAuth) + "\n";
-    report += "Passive_audit_data_frames: " + String((uint32_t)frameData) + "\n";
-    report += "Passive_audit_other_mgmt: " + String((uint32_t)frameOtherMgmt) + "\n";
-    report += "Note: passive frame counts are observations, not proof of an attack.\n";
-    if (wifiScanDone) {
-        int total = WiFi.scanComplete();
-        int openNetworks = 0;
-        int duplicateNames = 0;
-        uint8_t channelCounts[14] = {};
-        for (int i = 0; i < total; ++i) {
-            if (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ++openNetworks;
-            int channel = WiFi.channel(i);
-            if (channel >= 1 && channel <= 13) ++channelCounts[channel];
-            String current = WiFi.SSID(i);
-            if (current.length() == 0) continue;
-            for (int j = 0; j < i; ++j) {
-                if (current == WiFi.SSID(j)) { ++duplicateNames; break; }
-            }
-        }
-        report += "WiFi_Open_APs: " + String(openNetworks) + "\n";
-        report += "WiFi_Duplicate_SSID_observations: " + String(duplicateNames) + "\n";
-        report += "WiFi_Channel_counts:";
-        for (int ch = 1; ch <= 13; ++ch) {
-            if (channelCounts[ch]) report += " ch" + String(ch) + "=" + String(channelCounts[ch]);
-        }
-        report += "\n";
-        report += "Assessment_note: open APs and duplicate SSIDs need context; neither alone proves a vulnerability.\n";
-        for (int i = 0; i < total; ++i) {
-            String ssid = WiFi.SSID(i);
-            ssid.replace(",", "_");
-            report += "AP," + ssid + "," + WiFi.BSSIDstr(i) + "," + String(WiFi.RSSI(i)) + "," + String(WiFi.channel(i));
-            report += WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? ",OPEN\n" : ",SECURED\n";
-        }
-    }
-    return report;
-}
-
-bool saveReport() {
-    if (!mountSD()) {
-        lastReport = "microSD unavailable";
-        statusLine = "Insert/verify microSD";
-        return false;
-    }
-    String path = "/HELLEBORE.TXT";
-    if (SD.exists(path)) {
-        path = "/HELLEBORE-" + String(millis()) + ".TXT";
-    }
-    File file = SD.open(path, FILE_WRITE);
-    if (!file) {
-        lastReport = "SD write failed";
-        statusLine = "SD write failed";
-        return false;
-    }
-    String report = makeReport();
-    size_t written = file.print(report);
-    file.close();
-    if (written != report.length()) {
-        lastReport = "Incomplete report write";
-        statusLine = "Report incomplete";
-        return false;
-    }
-    lastReport = "Saved " + path;
-    statusLine = "Report saved to SD";
-    return true;
-}
-
-bool saveCsvReport() {
-    if (!mountSD()) {
-        lastReport = "microSD unavailable";
-        statusLine = "Insert/verify microSD";
-        return false;
-    }
-    String path = "/HELLEBORE.csv";
-    if (SD.exists(path)) path = "/HELLEBORE-" + String(millis()) + ".csv";
-    File file = SD.open(path, FILE_WRITE);
-    if (!file) { lastReport = "CSV open failed"; return false; }
-    file.println("key,value");
-    file.println("firmware_version," HELLEBORE_VERSION);
-    file.println("uptime_ms," + String(millis() - bootMillis));
-    file.println("free_heap," + String(ESP.getFreeHeap()));
-    file.println("companion_xp," + String(companionXP));
-    file.println("companion_level," + String(companionLevel()));
-    file.println("wifi_scan_complete," + String(wifiScanDone ? "true" : "false"));
-    file.println("wifi_ap_count," + String(wifiCount));
-    file.println("ble_scan_complete," + String(bleScanDone ? "true" : "false"));
-    file.println("ble_device_count," + String(bleCount));
-    file.println("passive_audit_complete," + String(passiveAuditDone ? "true" : "false"));
-    file.println("deauth_frames_observed," + String((uint32_t)frameDeauth));
-    file.println("disassoc_frames_observed," + String((uint32_t)frameDisassoc));
-    String net = networkCheckSummary;
-    net.replace(",", ";");
-    file.println("network_check_summary," + net);
-    file.println("note,observations require context and are not vulnerability verdicts");
-    file.close();
-    lastReport = "Saved " + path;
-    statusLine = "CSV report saved";
-    return true;
-}
-
-String jsonEscape(String value) {
-    value.replace("\\", "\\\\");
-    value.replace("\"", "\\\"");
-    value.replace("\n", "\\n");
-    value.replace("\r", "\\r");
-    value.replace("\t", "\\t");
-    return value;
-}
-
-bool saveJsonReport() {
-    if (!mountSD()) { lastReport = "microSD unavailable"; statusLine = "Insert/verify microSD"; return false; }
-    String path = "/HELLEBORE.json";
-    if (SD.exists(path)) path = "/HELLEBORE-" + String(millis()) + ".json";
-    File file = SD.open(path, FILE_WRITE);
-    if (!file) { lastReport = "JSON open failed"; statusLine = "JSON open failed"; return false; }
-    String json = "{\n";
-    json += "  \"firmware_version\": \"" HELLEBORE_VERSION "\",\n";
-    json += "  \"uptime_ms\": " + String(millis() - bootMillis) + ",\n";
-    json += "  \"free_heap_bytes\": " + String(ESP.getFreeHeap()) + ",\n";
-    json += "  \"wifi_scan_complete\": " + String(wifiScanDone ? "true" : "false") + ",\n";
-    json += "  \"wifi_ap_count\": " + String(wifiCount) + ",\n";
-    json += "  \"ble_scan_complete\": " + String(bleScanDone ? "true" : "false") + ",\n";
-    json += "  \"ble_device_count\": " + String(bleCount) + ",\n";
-    json += "  \"passive_audit_complete\": " + String(passiveAuditDone ? "true" : "false") + ",\n";
-    json += "  \"deauth_frames_observed\": " + String((uint32_t)frameDeauth) + ",\n";
-    json += "  \"disassoc_frames_observed\": " + String((uint32_t)frameDisassoc) + ",\n";
-    json += "  \"network_check_summary\": \"" + jsonEscape(networkCheckSummary) + "\",\n";
-    json += "  \"companion\": { \"xp\": " + String(companionXP) + ", \"level\": " + String(companionLevel()) + ", \"mood\": \"" + jsonEscape(companionMood) + "\" },\n";
-    json += "  \"interpretation\": \"Observed frame counts and open networks are clues, not proof of a vulnerability.\"\n";
-    json += "}\n";
-    size_t written = file.print(json);
-    file.close();
-    if (written != json.length()) { lastReport = "Incomplete JSON write"; statusLine = "JSON incomplete"; return false; }
-    lastReport = "Saved " + path; statusLine = "JSON report saved"; return true;
-}
-
-bool runActiveNetworkChecks() {
-    if (WiFi.status() != WL_CONNECTED) {
-        networkCheckSummary = "Not connected to Wi-Fi";
-        statusLine = "Connect to an authorized Wi-Fi network first";
-        terminalOutput = "NETCHECK: not connected. Join your own/test network using a trusted setup first.";
-        dirty = true;
-        return false;
-    }
-    IPAddress resolved;
-    bool dnsOk = WiFi.hostByName("example.com", resolved) == 1;
-    IPAddress gateway = WiFi.gatewayIP();
-    bool gatewayHttp = false;
-    bool gatewayHttps = false;
-    WiFiClient client;
-    client.setTimeout(1200);
-    if (gateway != IPAddress(0, 0, 0, 0)) {
-        gatewayHttp = client.connect(gateway, 80);
-        if (gatewayHttp) client.stop();
-        gatewayHttps = client.connect(gateway, 443);
-        if (gatewayHttps) client.stop();
-    }
-    networkCheckSummary = String("DNS ") + (dnsOk ? "OK" : "FAIL") +
-        " | GW:80 " + (gatewayHttp ? "open/responding" : "no response") +
-        " | GW:443 " + (gatewayHttps ? "open/responding" : "no response");
-    terminalOutput = "NETCHECK " + WiFi.localIP().toString() + " gw " + gateway.toString() +
-        " DNS:" + (dnsOk ? "OK" : "FAIL") +
-        " 80:" + (gatewayHttp ? "YES" : "NO") + " 443:" + (gatewayHttps ? "YES" : "NO");
-    statusLine = "Active network checks complete";
-    dirty = true;
-    return dnsOk;
-}
-
-void drawDiagnostics() {
-    header("DIAGNOSTICS");
-    textLine(26, "Firmware: " HELLEBORE_VERSION, HB_CYAN);
-    textLine(40, "Uptime: " + String((millis() - bootMillis) / 1000) + "s");
-    textLine(54, "Free heap: " + String(ESP.getFreeHeap()) + " bytes");
-    textLine(68, "Wi-Fi: " + String(WiFi.getMode() == WIFI_MODE_NULL ? "idle" : "ready"));
-    textLine(82, "BLE: " + String(bleReady ? "initialized" : "not initialized"));
-    textLine(96, "microSD: " + String(sdReady ? "mounted" : "not mounted"));
-    textLine(109, "R: network checks (connected Wi-Fi)", HB_CYAN);
-    footer("R network check  ESC back");
-}
-
-void drawReports() {
-    header("REPORTS");
-    textLine(28, "Report destination: microSD", HB_CYAN);
-    textLine(44, "Last: " + lastReport, lastReport.startsWith("Saved") ? GREEN : HB_GOLD);
-    textLine(62, "Reports include device health,", WHITE);
-    textLine(75, "scan counts and available AP data.", WHITE);
-    textLine(91, "BLE details stay summarized in v0.1.", MUTED);
-    footer("E TXT report  C CSV  R test SD");
-}
-
-void passiveWifiCallback(void* buffer, wifi_promiscuous_pkt_type_t packetType) {
-    if (!buffer) return;
-    const wifi_promiscuous_pkt_t* packet = (const wifi_promiscuous_pkt_t*)buffer;
-    if (!packet->payload) return;
-    const uint8_t* frame = packet->payload;
-    uint16_t fc = (uint16_t)frame[0] | ((uint16_t)frame[1] << 8);
-    uint8_t type = (fc >> 2) & 0x03;
-    uint8_t subtype = (fc >> 4) & 0x0F;
-    observedChannel = packet->rx_ctrl.channel;
-    if (type == 0) {
-        if (subtype == 8) ++frameBeacons;
-        else if (subtype == 4) ++frameProbeRequests;
-        else if (subtype == 5) ++frameProbeResponses;
-        else if (subtype == 12) ++frameDeauth;
-        else if (subtype == 10) ++frameDisassoc;
-        else if (subtype == 11) ++frameAuth;
-        else ++frameOtherMgmt;
-    } else if (type == 2) {
-        ++frameData;
-    }
-}
-
-void runPassiveWifiAudit() {
-    statusLine = "Starting passive Wi-Fi audit...";
-    passiveAuditRunning = true;
-    passiveAuditDone = false;
-    frameBeacons = frameProbeRequests = frameProbeResponses = 0;
-    frameDeauth = frameDisassoc = frameAuth = frameData = frameOtherMgmt = 0;
-    observedChannel = 0;
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect(false, false);
-    esp_err_t cbResult = esp_wifi_set_promiscuous_rx_cb(&passiveWifiCallback);
-    esp_err_t onResult = cbResult == ESP_OK ? esp_wifi_set_promiscuous(true) : cbResult;
-    if (onResult != ESP_OK) {
-        passiveAuditRunning = false;
-        statusLine = "Passive monitor unavailable";
-        terminalOutput = "Passive monitor failed (ESP error " + String((int)onResult) + ")";
-        dirty = true;
-        return;
-    }
-    // Listen only; this routine never transmits crafted frames or disrupts clients.
-    const uint8_t channels[] = {1, 6, 11};
-    for (uint8_t channel : channels) {
-        esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
-        uint32_t started = millis();
-        while (millis() - started < 1800) {
-            M5Cardputer.update();
-            delay(10);
-        }
-    }
-    esp_wifi_set_promiscuous(false);
-    WiFi.mode(WIFI_MODE_NULL);
-    passiveAuditRunning = false;
-    passiveAuditDone = true;
-    statusLine = "Passive audit complete (ch 1/6/11)";
-    terminalOutput = "Passive Wi-Fi audit complete; press E to save evidence.";
-    dirty = true;
-}
-
-void drawAttackLab() {
-    header("WIRELESS AUDIT");
-    textLine(25, "PASSIVE 2.4 GHz FRAME AUDIT", HB_CYAN);
-    textLine(38, passiveAuditRunning ? "Listening..." : (passiveAuditDone ? "Last audit: complete" : "No audit run yet"), passiveAuditDone ? GREEN : HB_GOLD);
-    textLine(51, "Beacons: " + String((uint32_t)frameBeacons));
-    textLine(63, "Probe req/resp: " + String((uint32_t)frameProbeRequests) + "/" + String((uint32_t)frameProbeResponses));
-    textLine(75, "Deauth/disassoc: " + String((uint32_t)frameDeauth) + "/" + String((uint32_t)frameDisassoc));
-    textLine(87, "Auth/data: " + String((uint32_t)frameAuth) + "/" + String((uint32_t)frameData));
-    textLine(101, "Listen-only; counts aren't verdicts.", MUTED);
-    footer("R run audit  E export  ESC back");
-}
-uint8_t companionLevel() { return (uint8_t)(1 + (companionXP / 5 > 19 ? 19 : companionXP / 5)); }
-
-void drawCompanion() {
-    header("HELLE");
-    M5Cardputer.Display.drawRoundRect(7, 26, 226, 72, 8, HB_CYAN);
-    M5Cardputer.Display.setTextColor(HB_GOLD, BG);
-    M5Cardputer.Display.setCursor(15, 33);
-    M5Cardputer.Display.printf("HELLEBORE COMPANION  LV.%u", companionLevel());
-    uint16_t face = companionMood == "PROUD" ? HB_GOLD : HB_CYAN;
-    M5Cardputer.Display.fillRoundRect(18, 48, 42, 35, 7, face);
-    M5Cardputer.Display.fillCircle(29, 60, 3, BG);
-    M5Cardputer.Display.fillCircle(48, 60, 3, BG);
-    M5Cardputer.Display.drawLine(29, 72, 48, 72, BG);
-    M5Cardputer.Display.setTextColor(WHITE, BG);
-    M5Cardputer.Display.setCursor(70, 51);
-    M5Cardputer.Display.print("MOOD: " + companionMood);
-    M5Cardputer.Display.setCursor(70, 65);
-    M5Cardputer.Display.printf("XP: %lu  UP: %lus", (unsigned long)companionXP, (unsigned long)((millis() - bootMillis) / 1000));
-    textLine(104, companionThought, MUTED);
-    footer("R interact  E save report  ESC back");
-}
-
-void interactCompanion() {
-    ++companionXP;
-    if (passiveAuditDone || wifiScanDone || bleScanDone) {
-        companionMood = "PROUD";
-        companionThought = "Evidence beats guesswork. Nice work.";
-    } else if (WiFi.status() == WL_CONNECTED) {
-        companionMood = "CURIOUS";
-        companionThought = "Link found. Keep your scope authorized.";
-    } else {
-        companionMood = "CURIOUS";
-        companionThought = "Run a scan, then save what you learn.";
-    }
-    saveCompanionProfile();
-    dirty = true;
-}
-
-void drawTerminal() {
-    header("TERMINAL");
-    textLine(30, terminalOutput, HB_CYAN);
-    M5Cardputer.Display.setTextColor(WHITE, BG);
-    M5Cardputer.Display.setCursor(7, 91);
-    M5Cardputer.Display.print("> ");
-    M5Cardputer.Display.print(terminalInput.substring(0, 28));
-    footer("ENTER run  Q dashboard");
-}
-
-void runCommand() {
-    switch (hellebore::parseCommand(std::string(terminalInput.c_str()))) {
-        case hellebore::Command::Help: terminalOutput = "help about status scanwifi scanble netcheck audit report csv json playbook"; break;
-        case hellebore::Command::About: terminalOutput = "HELLEBORE v" HELLEBORE_VERSION " Cardputer Adv"; break;
-        case hellebore::Command::Status: terminalOutput = "heap " + String(ESP.getFreeHeap()) + " | " + statusLine; break;
-        case hellebore::Command::Clear: terminalOutput = ""; break;
-        case hellebore::Command::Unknown: {
-            String cmd = terminalInput;
-            cmd.trim();
-            cmd.toLowerCase();
-            if (cmd == "scanwifi") { runWifiScan(); terminalOutput = "Wi-Fi scan complete"; }
-            else if (cmd == "scanble") { runBleScan(); terminalOutput = "BLE scan complete"; }
-            else if (cmd == "audit") { runPassiveWifiAudit(); }
-            else if (cmd == "netcheck") { runActiveNetworkChecks(); }
-            else if (cmd == "report") { terminalOutput = saveReport() ? "Report saved" : "Report failed; check SD"; }
-            else if (cmd == "csv") { terminalOutput = saveCsvReport() ? "CSV report saved" : "CSV report failed; check SD"; }
-            else if (cmd == "json") { terminalOutput = saveJsonReport() ? "JSON report saved" : "JSON report failed; check SD"; }
-            else if (cmd == "playbook") { terminalOutput = "PLAYBOOK: define scope; inventory AP/BLE; run netcheck on your own network; preserve TXT/CSV/JSON evidence; verify findings; recommend WPA2-AES/WPA3, updates, unique admin passwords, guest isolation. No disruptive tests."; }
-            else terminalOutput = "Unknown command. Type help.";
-            break;
-        }
-    }
-    terminalInput = "";
-    dirty = true;
-}
-
-void openSelection() {
-    switch (selection) {
-        case 0: screen = Screen::Wifi; break;
-        case 1: screen = Screen::Ble; break;
-        case 2: screen = Screen::Diagnostics; break;
-        case 3: screen = Screen::Reports; break;
-        case 4: screen = Screen::AttackLab; break;
-        case 5: screen = Screen::Terminal; break;
-        default: screen = Screen::Dashboard; break;
-    }
-    scroll = 0;
-    dirty = true;
-}
-
-void back() { screen = Screen::Desk; dirty = true; }
-
-void key(char c) {
-    if (screen == Screen::Desk) {
-        if (c == 'f' || c == 'F') { screen = Screen::Focus; dirty = true; return; }
-        if (c == 'm' || c == 'M') { screen = Screen::Dashboard; dirty = true; return; }
-        if (c == 'p' || c == 'P' || c == ' ') { petAction(); return; }
-        return;
-    }
-    if (screen == Screen::Focus) {
-        if (c == ' ') { focusRunning = !focusRunning; focusLastTick = millis(); dirty = true; return; }
-        if (c == 'r' || c == 'R') { focusRemainingMs = 25UL*60UL*1000UL; focusRunning = false; dirty = true; return; }
-        if (c == 0x1B || c == 0x7F || c == '\b') { back(); return; }
-        return;
-    }
-    if (screen == Screen::Terminal) {
-        if (c == '\n' || c == '\r') runCommand();
-        else if (c == '\b' || c == 0x7F) {
-            if (terminalInput.length()) terminalInput.remove(terminalInput.length() - 1);
-            dirty = true;
-        } else if (c >= 32 && c <= 126 && terminalInput.length() < 48) {
-            terminalInput += c; dirty = true;
-        }
-        return;
-    }
-    if (screen == Screen::Settings) {
-        if (c == 't' || c == 'T' || c == 0x1B || c == '\\b') { back(); return; }
-        if (c == 'w' || c == 'W') { settingsSelection = (settingsSelection + 3) % 4; dirty = true; return; }
-        if (c == 's' || c == 'S') { settingsSelection = (settingsSelection + 1) % 4; dirty = true; return; }
-        if (c == 'a' || c == 'A') { updateSetting(-1); return; }
-        if (c == 'd' || c == 'D' || c == '\n' || c == '\r') { updateSetting(1); return; }
-        return;
-    }
-    if (screen == Screen::Companion) {
-        if (c == 'r' || c == 'R') interactCompanion();
-        else if (c == 'e' || c == 'E') { saveReport(); ++companionXP; companionMood = "PROUD"; companionThought = "Report secured. Evidence matters."; saveCompanionProfile(); dirty = true; }
-        return;
-    }
-    if (screen == Screen::Dashboard) {
-        if (c >= '1' && c <= '6') { selection = c - '1'; openSelection(); }
-        else if (c == 'w' || c == 'W') { selection = (selection + MENU_COUNT - 1) % MENU_COUNT; dirty = true; }
-        else if (c == 's' || c == 'S') { selection = (selection + 1) % MENU_COUNT; dirty = true; }
-        else if (c == 'p' || c == 'P') { screen = Screen::Companion; dirty = true; }
-        else if (c == 't' || c == 'T') { screen = Screen::Settings; settingsSelection = 0; dirty = true; }
-        else if (c == '\n' || c == '\r') openSelection();
-        return;
-    }
-    if (c == 0x1B || c == '\b' || c == 0x7F) { back(); return; }
-    if (c == 'w' || c == 'W') { if (scroll > 0) --scroll; dirty = true; return; }
-    if (c == 's' || c == 'S') { ++scroll; dirty = true; return; }
-    if (c == 'r' || c == 'R') {
-        if (screen == Screen::Wifi) runWifiScan();
-        else if (screen == Screen::Ble) runBleScan();
-        else if (screen == Screen::Diagnostics) {
-            runActiveNetworkChecks();
-        } else if (screen == Screen::Reports) {
-            sdReady = mountSD(); statusLine = sdReady ? "microSD OK" : "microSD unavailable"; dirty = true;
-        } else if (screen == Screen::AttackLab) {
-            runPassiveWifiAudit();
-        }
-        return;
-    }
-    if (c == 'e' || c == 'E') {
-        if (screen == Screen::Wifi || screen == Screen::Reports || screen == Screen::AttackLab) { saveReport(); dirty = true; }
-        return;
-    }
-
-}
-
-void render() {
-    if (animationsEnabled && screen == Screen::Dashboard && millis() - animationTick > 1200) {
-        animationTick = millis();
-        dirty = true;
-    }
-    if (!dirty) return;
-    switch (screen) {
-        case Screen::Desk: drawDesk(); break;
-        case Screen::Focus: drawFocus(); break;
-        case Screen::Dashboard: drawDashboard(); break;
-        case Screen::Wifi: drawWifi(); break;
-        case Screen::Ble: drawBle(); break;
-        case Screen::Diagnostics: drawDiagnostics(); break;
-        case Screen::Reports: drawReports(); break;
-        case Screen::AttackLab: drawAttackLab(); break;
-        case Screen::Terminal: drawTerminal(); break;
-        case Screen::Companion: drawCompanion(); break;
-        case Screen::Settings: drawSettings(); break;
-    }
-    dirty = false;
-}
 } // namespace
 
 void setup() {
-    auto config = M5.config();
-    M5Cardputer.begin(config, true);
-    M5Cardputer.Display.setRotation(1);
-    M5Cardputer.Display.setBrightness(100);
-    M5Cardputer.Display.setTextSize(1);
-    bootMillis = millis();
-    focusLastTick = bootMillis;
-    loadSettings();
-    M5Cardputer.Display.setBrightness(displayBrightness);
-    loadCompanionProfile();
-    WiFi.mode(WIFI_MODE_NULL);
-    M5Cardputer.Display.fillScreen(BG);
-    M5Cardputer.Display.setTextColor(HB_GOLD, BG);
-    M5Cardputer.Display.setTextSize(2);
-    M5Cardputer.Display.setCursor(24, 43);
-    M5Cardputer.Display.print("HELLEBORE");
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setTextColor(HB_CYAN, BG);
-    M5Cardputer.Display.setCursor(36, 72);
-    M5Cardputer.Display.print("FIELD COMPANION ONLINE");
-    delay(650);
-    screen = Screen::Desk;
-    render();
+  auto cfg=M5.config();
+  M5Cardputer.begin(cfg,true);
+  M5Cardputer.Display.setRotation(1);
+  M5Cardputer.Display.setBrightness(150);
+  M5Cardputer.Display.fillScreen(BG);
+  centerText(48,"HELLEBORE",GOLD,2);
+  centerText(72,"INITIALIZING DESK MODE",CYAN);
+  bootAt=millis();
+  focusTick=bootAt;
+  loadState();
+  delay(350);
 }
 
 void loop() {
-    M5Cardputer.update();
-    uint32_t now = millis();
-    if (focusRunning && focusRemainingMs > 0 && now - focusLastTick >= 1000) {
-        uint32_t elapsed = now - focusLastTick;
-        focusRemainingMs = elapsed >= focusRemainingMs ? 0 : focusRemainingMs - elapsed;
-        focusLastTick = now;
-        if (focusRemainingMs == 0) {
-            focusRunning = false;
-            petMoodIndex = 3;
-            companionMood = "HAPPY";
-            companionThought = "Focus session complete. Take a breather!";
-            dirty = true;
-        } else if (screen == Screen::Focus) dirty = true;
-    } else if (!focusRunning) focusLastTick = now;
-    if (screen == Screen::Desk && animationsEnabled && now - animationTick >= 650) {
-        animationTick = now;
-        ++petAnimation;
-        dirty = true;
-    }
-    if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-        auto state = M5Cardputer.Keyboard.keysState();
-        for (char c : state.word) key(c);
-        if (state.enter) key('\n');
-        if (state.del) key('\b');
-    }
-    render();
-    delay(5);
+  M5Cardputer.update();
+  const uint32_t now=millis();
+  if (focusRunning && now-focusTick>=1000) {
+    uint32_t elapsed=(now-focusTick)/1000;
+    focusLeft=elapsed>=focusLeft?0:focusLeft-elapsed;
+    focusTick+=elapsed*1000;
+    if (focusLeft==0) { focusRunning=false; mood=Mood::Happy; thought="FOCUS COMPLETE. NICE WORK."; saveState(); }
+  } else if (!focusRunning) focusTick=now;
+
+  if (now-lastBlink>3600) { blink=!blink; lastBlink=now; }
+  if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+    auto keys=M5Cardputer.Keyboard.keys();
+    for (auto key:keys.word) handleKey((char)key);
+    if (keys.enter) handleKey('\n');
+    if (keys.del) handleKey(0x7F);
+  }
+  if (now-lastFrame>180) {
+    lastFrame=now;
+    if (showTools) drawTools();
+    else if (focusRunning || focusLeft<1500) drawFocus();
+    else drawHome(now);
+  }
+  delay(5);
 }
