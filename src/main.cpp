@@ -94,7 +94,7 @@ void loadSettings() {
     File file = SD.open("/HELLEBORE.SET", FILE_READ);
     if (!file) return;
     while (file.available()) {
-        String line = file.readStringUntil('\\n'); line.trim();
+        String line = file.readStringUntil('\n'); line.trim();
         if (line.startsWith("theme=")) alternateTheme = line.substring(6).toInt() != 0;
         else if (line.startsWith("animations=")) animationsEnabled = line.substring(11).toInt() != 0;
         else if (line.startsWith("brightness=")) displayBrightness = (uint8_t)constrain(line.substring(11).toInt(), 20, 255);
@@ -694,7 +694,7 @@ void key(char c) {
         if (c == 'w' || c == 'W') { settingsSelection = (settingsSelection + 3) % 4; dirty = true; return; }
         if (c == 's' || c == 'S') { settingsSelection = (settingsSelection + 1) % 4; dirty = true; return; }
         if (c == 'a' || c == 'A') { updateSetting(-1); return; }
-        if (c == 'd' || c == 'D' || c == '\\n' || c == '\\r') { updateSetting(1); return; }
+        if (c == 'd' || c == 'D' || c == '\n' || c == '\r') { updateSetting(1); return; }
         return;
     }
     if (screen == Screen::Companion) {
