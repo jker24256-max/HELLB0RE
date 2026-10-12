@@ -25,7 +25,7 @@
 #endif
 
 namespace {
-enum class Screen : uint8_t { Dashboard, Wifi, Ble, Diagnostics, Reports, AttackLab, Terminal, Companion };
+enum class Screen : uint8_t { Dashboard, Wifi, Ble, Diagnostics, Reports, AttackLab, Terminal, Companion, Settings };
 Screen screen = Screen::Dashboard;
 int selection = 0;
 int scroll = 0;
@@ -51,11 +51,55 @@ String networkCheckSummary = "Not run";
 uint32_t companionXP = 0;
 String companionMood = "CURIOUS";
 String companionThought = "Let us map the airwaves.";
-constexpr uint16_t BG = 0x0812, PANEL = 0x10A2, PANEL_ACTIVE = 0x253F;
-constexpr uint16_t HB_CYAN = 0x07FF, WHITE = 0xFFFF, MUTED = 0x7BEF, HB_GOLD = 0xFDE0, RED = 0xF986, GREEN = 0x87F0;
+bool alternateTheme = false;
+bool animationsEnabled = true;
+uint8_t displayBrightness = 100;
+int settingsSelection = 0;
+uint32_t animationTick = 0;
+uint16_t BG = 0x0812, PANEL = 0x10A2, PANEL_ACTIVE = 0x253F;
+uint16_t HB_CYAN = 0x07FF, WHITE = 0xFFFF, MUTED = 0x7BEF, HB_GOLD = 0xFDE0, RED = 0xF986, GREEN = 0x87F0;
 
-const char* menuItems[] = {"Wi-Fi discovery", "BLE discovery", "Diagnostics", "Reports / microSD", "Wireless security lab", "Terminal"};
+const char* menuItems[] = {"WI-FI RADAR", "BLE RADAR", "SYSTEM CHECK", "EVIDENCE VAULT", "WIRELESS LAB", "COMMAND DECK"};
 constexpr int MENU_COUNT = sizeof(menuItems) / sizeof(menuItems[0]);
+
+void applyTheme() {
+    if (alternateTheme) {
+        BG = 0x0000; PANEL = 0x2104; PANEL_ACTIVE = 0x4208;
+        HB_CYAN = 0x07E0; HB_GOLD = 0xFFE0; WHITE = 0xFFFF; MUTED = 0xA514;
+        RED = 0xF800; GREEN = 0x07E0;
+    } else {
+        BG = 0x0812; PANEL = 0x10A2; PANEL_ACTIVE = 0x253F;
+        HB_CYAN = 0x07FF; HB_GOLD = 0xFDE0; WHITE = 0xFFFF; MUTED = 0x7BEF;
+        RED = 0xF986; GREEN = 0x87F0;
+    }
+}
+
+void saveSettings() {
+    if (!mountSD()) return;
+    SD.remove("/HELLEBORE.SET.tmp");
+    File file = SD.open("/HELLEBORE.SET.tmp", FILE_WRITE);
+    if (!file) return;
+    file.println("theme=" + String(alternateTheme ? 1 : 0));
+    file.println("animations=" + String(animationsEnabled ? 1 : 0));
+    file.println("brightness=" + String(displayBrightness));
+    file.close();
+    SD.remove("/HELLEBORE.SET");
+    SD.rename("/HELLEBORE.SET.tmp", "/HELLEBORE.SET");
+}
+
+void loadSettings() {
+    if (!mountSD() || !SD.exists("/HELLEBORE.SET")) return;
+    File file = SD.open("/HELLEBORE.SET", FILE_READ);
+    if (!file) return;
+    while (file.available()) {
+        String line = file.readStringUntil('\\n'); line.trim();
+        if (line.startsWith("theme=")) alternateTheme = line.substring(6).toInt() != 0;
+        else if (line.startsWith("animations=")) animationsEnabled = line.substring(11).toInt() != 0;
+        else if (line.startsWith("brightness=")) displayBrightness = (uint8_t)constrain(line.substring(11).toInt(), 20, 255);
+    }
+    file.close();
+    applyTheme();
+}
 
 void header(const char* title) {
     M5Cardputer.Display.fillScreen(BG);
@@ -83,22 +127,54 @@ void textLine(int y, const String& text, uint16_t color = WHITE) {
 }
 
 void drawDashboard() {
-    header("DASHBOARD");
-    M5Cardputer.Display.setTextColor(WHITE, BG);
-    M5Cardputer.Display.setCursor(7, 25);
-    M5Cardputer.Display.print("WIRELESS FIELD TOOLKIT");
+    header("FIELD CONSOLE");
+    if (animationsEnabled) { M5Cardputer.Display.drawFastHLine((millis()/18)%230 + 4, 21, 6, HB_CYAN); }
+    M5Cardputer.Display.setTextColor(HB_CYAN, BG);
+    M5Cardputer.Display.setCursor(7, 24);
+    M5Cardputer.Display.print("FIELD OPS  /  OFFLINE-FIRST");
+    M5Cardputer.Display.setTextColor(MUTED, BG);
+    M5Cardputer.Display.setCursor(7, 35);
+    M5Cardputer.Display.printf("UP %lus  HEAP %uK  SD %s", (unsigned long)((millis()-bootMillis)/1000), (unsigned)(ESP.getFreeHeap()/1024), sdReady ? "READY" : "--");
     for (int i = 0; i < MENU_COUNT; ++i) {
         int x = 6 + (i % 2) * 117;
-        int y = 40 + (i / 2) * 25;
+        int y = 48 + (i / 2) * 22;
         bool active = i == selection;
         uint16_t fill = active ? PANEL_ACTIVE : PANEL;
-        M5Cardputer.Display.fillRoundRect(x, y, 111, 21, 3, fill);
-        M5Cardputer.Display.drawRoundRect(x, y, 111, 21, 3, active ? HB_CYAN : 0x4208);
-        M5Cardputer.Display.setTextColor(active ? WHITE : 0xC618, fill);
-        M5Cardputer.Display.setCursor(x + 5, y + 7);
+        M5Cardputer.Display.fillRoundRect(x, y, 111, 19, 4, fill);
+        M5Cardputer.Display.drawRoundRect(x, y, 111, 19, 4, active ? HB_CYAN : 0x4208);
+        M5Cardputer.Display.setTextColor(active ? HB_GOLD : WHITE, fill);
+        M5Cardputer.Display.setCursor(x + 5, y + 6);
         M5Cardputer.Display.printf("%d %s", i + 1, menuItems[i]);
     }
-    footer("1-6 open  P companion  W/S move");
+    footer("1-6 OPEN  P HELLE  T SETTINGS  W/S MOVE");
+}
+
+void drawSettings() {
+    header("PREFERENCES");
+    const char* labels[] = {"Colorway", "Motion accents", "Display brightness", "Save preferences"};
+    String values[] = {alternateTheme ? "LIME / MONO" : "CYAN / GOLD", animationsEnabled ? "ON" : "OFF", String(displayBrightness), "WRITE TO SD"};
+    for (int i=0; i<4; ++i) {
+        int y = 31 + i*21;
+        bool active = settingsSelection == i;
+        M5Cardputer.Display.fillRoundRect(7, y, 226, 18, 3, active ? PANEL_ACTIVE : PANEL);
+        M5Cardputer.Display.drawRoundRect(7, y, 226, 18, 3, active ? HB_CYAN : 0x4208);
+        M5Cardputer.Display.setTextColor(active ? HB_GOLD : WHITE, active ? PANEL_ACTIVE : PANEL);
+        M5Cardputer.Display.setCursor(13, y+6); M5Cardputer.Display.print(labels[i]);
+        M5Cardputer.Display.setCursor(157, y+6); M5Cardputer.Display.print(values[i]);
+    }
+    textLine(116, "A/D or W/S select  ENTER change", MUTED);
+    footer("T BACK  SETTINGS SAVE TO microSD");
+}
+
+void updateSetting(int direction) {
+    if (settingsSelection == 0) { alternateTheme = !alternateTheme; applyTheme(); }
+    else if (settingsSelection == 1) animationsEnabled = !animationsEnabled;
+    else if (settingsSelection == 2) {
+        int next = (int)displayBrightness + direction * 20;
+        displayBrightness = (uint8_t)constrain(next, 20, 255);
+        M5Cardputer.Display.setBrightness(displayBrightness);
+    } else saveSettings();
+    dirty = true;
 }
 
 void drawWifi() {
@@ -573,6 +649,14 @@ void key(char c) {
         }
         return;
     }
+    if (screen == Screen::Settings) {
+        if (c == 't' || c == 'T' || c == 0x1B || c == '\\b') { back(); return; }
+        if (c == 'w' || c == 'W') { settingsSelection = (settingsSelection + 3) % 4; dirty = true; return; }
+        if (c == 's' || c == 'S') { settingsSelection = (settingsSelection + 1) % 4; dirty = true; return; }
+        if (c == 'a' || c == 'A') { updateSetting(-1); return; }
+        if (c == 'd' || c == 'D' || c == '\\n' || c == '\\r') { updateSetting(1); return; }
+        return;
+    }
     if (screen == Screen::Companion) {
         if (c == 'r' || c == 'R') interactCompanion();
         else if (c == 'e' || c == 'E') { saveReport(); ++companionXP; companionMood = "PROUD"; companionThought = "Report secured. Evidence matters."; saveCompanionProfile(); dirty = true; }
@@ -583,6 +667,7 @@ void key(char c) {
         else if (c == 'w' || c == 'W') { selection = (selection + MENU_COUNT - 1) % MENU_COUNT; dirty = true; }
         else if (c == 's' || c == 'S') { selection = (selection + 1) % MENU_COUNT; dirty = true; }
         else if (c == 'p' || c == 'P') { screen = Screen::Companion; dirty = true; }
+        else if (c == 't' || c == 'T') { screen = Screen::Settings; settingsSelection = 0; dirty = true; }
         else if (c == '\n' || c == '\r') openSelection();
         return;
     }
@@ -609,6 +694,10 @@ void key(char c) {
 }
 
 void render() {
+    if (animationsEnabled && screen == Screen::Dashboard && millis() - animationTick > 1200) {
+        animationTick = millis();
+        dirty = true;
+    }
     if (!dirty) return;
     switch (screen) {
         case Screen::Dashboard: drawDashboard(); break;
@@ -619,6 +708,7 @@ void render() {
         case Screen::AttackLab: drawAttackLab(); break;
         case Screen::Terminal: drawTerminal(); break;
         case Screen::Companion: drawCompanion(); break;
+        case Screen::Settings: drawSettings(); break;
     }
     dirty = false;
 }
@@ -631,6 +721,8 @@ void setup() {
     M5Cardputer.Display.setBrightness(100);
     M5Cardputer.Display.setTextSize(1);
     bootMillis = millis();
+    loadSettings();
+    M5Cardputer.Display.setBrightness(displayBrightness);
     loadCompanionProfile();
     WiFi.mode(WIFI_MODE_NULL);
     M5Cardputer.Display.fillScreen(BG);
