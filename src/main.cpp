@@ -25,7 +25,7 @@
 #endif
 
 namespace {
-enum class Screen : uint8_t { Dashboard, Wifi, Ble, Diagnostics, Reports, AttackLab, Terminal, Companion, Settings };
+enum class Screen : uint8_t { Desk, Focus, Dashboard, Wifi, Ble, Diagnostics, Reports, AttackLab, Terminal, Companion, Settings };
 Screen screen = Screen::Dashboard;
 int selection = 0;
 int scroll = 0;
@@ -50,7 +50,13 @@ String lastReport = "No report saved yet";
 String networkCheckSummary = "Not run";
 uint32_t companionXP = 0;
 String companionMood = "CURIOUS";
-String companionThought = "Let us map the airwaves.";
+String companionThought = "Glad you are here.";
+uint32_t focusRemainingMs = 25UL * 60UL * 1000UL;
+uint32_t focusLastTick = 0;
+bool focusRunning = false;
+uint8_t petAnimation = 0;
+uint8_t petMoodIndex = 0;
+const char* petMoods[] = {"CHILL", "CURIOUS", "SLEEPY", "HAPPY", "FOCUSED"};
 bool alternateTheme = false;
 bool animationsEnabled = true;
 uint8_t displayBrightness = 100;
@@ -149,6 +155,60 @@ void drawDashboard() {
         M5Cardputer.Display.printf("%d %s", i + 1, menuItems[i]);
     }
     footer("1-6 OPEN  P HELLE  T SETTINGS  W/S MOVE");
+}
+
+void drawDesk() {
+    header("LITTLE DESK BUDDY");
+    uint32_t seconds = (millis() / 1000) % 60;
+    uint32_t minutes = (millis() / 60000) % 60;
+    uint32_t hours = (millis() / 3600000) % 24;
+    M5Cardputer.Display.setTextColor(HB_CYAN, BG);
+    M5Cardputer.Display.setCursor(8, 25);
+    M5Cardputer.Display.printf("UPTIME  %02lu:%02lu:%02lu", (unsigned long)hours, (unsigned long)minutes, (unsigned long)seconds);
+    M5Cardputer.Display.drawRoundRect(7, 39, 226, 61, 10, HB_CYAN);
+    uint16_t fur = petMoodIndex == 3 ? HB_GOLD : (petMoodIndex == 2 ? MUTED : HB_CYAN);
+    int bob = animationsEnabled ? (int)((millis()/240)%3) - 1 : 0;
+    int px = 88, py = 47 + bob;
+    M5Cardputer.Display.fillRoundRect(px, py, 64, 44, 15, fur);
+    if (petAnimation % 5 == 2) {
+        M5Cardputer.Display.drawLine(px+17, py+17, px+23, py+17, BG);
+        M5Cardputer.Display.drawLine(px+41, py+17, px+47, py+17, BG);
+    } else {
+        M5Cardputer.Display.fillCircle(px+20, py+17, 3, BG);
+        M5Cardputer.Display.fillCircle(px+44, py+17, 3, BG);
+    }
+    M5Cardputer.Display.drawLine(px+25, py+31, px+39, py+31, BG);
+    M5Cardputer.Display.setTextColor(WHITE, BG);
+    M5Cardputer.Display.setCursor(10, 105);
+    M5Cardputer.Display.printf("HELLE / %s / LV.%u", petMoods[petMoodIndex], companionLevel());
+    footer("P PET  F FOCUS  M TOOLS  SPACE PLAY");
+}
+
+void drawFocus() {
+    header("FOCUS NOOK");
+    M5Cardputer.Display.setTextColor(HB_GOLD, BG);
+    M5Cardputer.Display.setTextSize(2);
+    M5Cardputer.Display.setCursor(45, 38);
+    M5Cardputer.Display.printf("%02lu:%02lu", (unsigned long)(focusRemainingMs/60000), (unsigned long)((focusRemainingMs/1000)%60));
+    M5Cardputer.Display.setTextSize(1);
+    M5Cardputer.Display.drawRoundRect(14, 67, 212, 10, 4, HB_CYAN);
+    uint32_t elapsed = 25UL*60UL*1000UL - focusRemainingMs;
+    int width = (int)(elapsed * 206UL / (25UL*60UL*1000UL));
+    M5Cardputer.Display.fillRoundRect(17, 70, width, 4, 2, HB_CYAN);
+    textLine(87, focusRunning ? "FOCUSING... YOU'VE GOT THIS." : "A little progress still counts.", WHITE);
+    textLine(101, "Take a break when the timer ends.", MUTED);
+    footer("SPACE START/PAUSE  R RESET  ESC HOME");
+}
+
+void petAction() {
+    ++companionXP;
+    petMoodIndex = (petMoodIndex + 1) % 5;
+    petAnimation = (petAnimation + 1) % 10;
+    companionMood = petMoods[petMoodIndex];
+    const char* thoughts[] = {"One step at a time.", "What's that over there?", "Tiny recharge time.", "You make a good team.", "Focus mode: let's go."};
+    companionThought = thoughts[petMoodIndex];
+    saveCompanionProfile();
+    dirty = true;
 }
 
 void drawSettings() {
@@ -676,9 +736,21 @@ void openSelection() {
     dirty = true;
 }
 
-void back() { screen = Screen::Dashboard; dirty = true; }
+void back() { screen = Screen::Desk; dirty = true; }
 
 void key(char c) {
+    if (screen == Screen::Desk) {
+        if (c == 'f' || c == 'F') { screen = Screen::Focus; dirty = true; return; }
+        if (c == 'm' || c == 'M') { screen = Screen::Dashboard; dirty = true; return; }
+        if (c == 'p' || c == 'P' || c == ' ') { petAction(); return; }
+        return;
+    }
+    if (screen == Screen::Focus) {
+        if (c == ' ') { focusRunning = !focusRunning; focusLastTick = millis(); dirty = true; return; }
+        if (c == 'r' || c == 'R') { focusRemainingMs = 25UL*60UL*1000UL; focusRunning = false; dirty = true; return; }
+        if (c == 0x1B || c == 0x7F || c == '\b') { back(); return; }
+        return;
+    }
     if (screen == Screen::Terminal) {
         if (c == '\n' || c == '\r') runCommand();
         else if (c == '\b' || c == 0x7F) {
@@ -740,6 +812,8 @@ void render() {
     }
     if (!dirty) return;
     switch (screen) {
+        case Screen::Desk: drawDesk(); break;
+        case Screen::Focus: drawFocus(); break;
         case Screen::Dashboard: drawDashboard(); break;
         case Screen::Wifi: drawWifi(); break;
         case Screen::Ble: drawBle(); break;
@@ -761,6 +835,7 @@ void setup() {
     M5Cardputer.Display.setBrightness(100);
     M5Cardputer.Display.setTextSize(1);
     bootMillis = millis();
+    focusLastTick = bootMillis;
     loadSettings();
     M5Cardputer.Display.setBrightness(displayBrightness);
     loadCompanionProfile();
@@ -775,11 +850,30 @@ void setup() {
     M5Cardputer.Display.setCursor(36, 72);
     M5Cardputer.Display.print("FIELD COMPANION ONLINE");
     delay(650);
+    screen = Screen::Desk;
     render();
 }
 
 void loop() {
     M5Cardputer.update();
+    uint32_t now = millis();
+    if (focusRunning && focusRemainingMs > 0 && now - focusLastTick >= 1000) {
+        uint32_t elapsed = now - focusLastTick;
+        focusRemainingMs = elapsed >= focusRemainingMs ? 0 : focusRemainingMs - elapsed;
+        focusLastTick = now;
+        if (focusRemainingMs == 0) {
+            focusRunning = false;
+            petMoodIndex = 3;
+            companionMood = "HAPPY";
+            companionThought = "Focus session complete. Take a breather!";
+            dirty = true;
+        } else if (screen == Screen::Focus) dirty = true;
+    } else if (!focusRunning) focusLastTick = now;
+    if (screen == Screen::Desk && animationsEnabled && now - animationTick >= 180) {
+        animationTick = now;
+        ++petAnimation;
+        dirty = true;
+    }
     if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
         auto state = M5Cardputer.Keyboard.keysState();
         for (char c : state.word) key(c);
