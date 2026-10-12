@@ -4,20 +4,21 @@ This matrix distinguishes code that exists from hardware behavior that still nee
 
 ## Implemented in firmware
 
-- Dark dashboard, keyboard navigation, terminal, command parser and branded boot splash.
+- Custom dark tactical dashboard with CYAN/GOLD and LIME/MONO colorways, keyboard navigation, subtle optional dashboard motion, adjustable brightness, terminal, command parser and branded boot splash. Preferences persist to microSD when present.
 - Wi-Fi access-point discovery with SSID, BSSID, channel, RSSI and basic open/secured labeling.
 - BLE advertisement discovery with names and RSSI.
 - Passive Wi-Fi frame audit on channels 1, 6 and 11; counts management/data frame classes and records deauthentication/disassociation observations without transmitting disruptive frames.
 - Connected-network diagnostics: local IP, gateway, DNS resolution, and TCP reachability checks to the local gateway on ports 80/443.
-- microSD plain-text evidence reports with device health, scan totals, Wi-Fi inventory observations, channel counts, passive audit counters, network-check result, and companion stats.
+- microSD plain-text, CSV and JSON evidence exports with device health, scan totals, Wi-Fi inventory observations, channel counts, passive audit counters, network-check result, and companion stats.
+- Terminal `playbook` command with a compact offline defensive assessment/remediation checklist.
 - Helle offline companion: XP, levels, moods, small face, contextual hints, and a boot splash.
 - GitHub Actions host tests, firmware compilation and merged full-flash image artifact.
 
 ## Planned / needs implementation
 
-- Persistent companion profile across reboots, richer personality/event messages and configurable idle behavior.
-- Theme settings, brightness controls, animation toggles and custom splash assets.
-- JSON/CSV report export, report browser, report comparison and report integrity hashes.
+- Richer companion personality/event messages, configurable idle behavior and additional progress unlocks.
+- Custom splash assets and richer animated transitions.
+- Report browser, report comparison, report integrity hashes and export validation against real SD-card behavior.
 - Wi-Fi channel utilization visualization, duplicate SSID correlation and more nuanced security advisories.
 - BLE service UUID details and explicitly selected lab-peripheral GATT inspection.
 - Target allowlist/profile management and small-scope authorized service checks.
