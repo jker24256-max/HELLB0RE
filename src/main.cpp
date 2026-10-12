@@ -62,6 +62,8 @@ uint16_t HB_CYAN = 0x07FF, WHITE = 0xFFFF, MUTED = 0x7BEF, HB_GOLD = 0xFDE0, RED
 const char* menuItems[] = {"WI-FI RADAR", "BLE RADAR", "SYSTEM CHECK", "EVIDENCE VAULT", "WIRELESS LAB", "COMMAND DECK"};
 constexpr int MENU_COUNT = sizeof(menuItems) / sizeof(menuItems[0]);
 
+bool mountSD();
+
 void applyTheme() {
     if (alternateTheme) {
         BG = 0x0000; PANEL = 0x2104; PANEL_ACTIVE = 0x4208;
