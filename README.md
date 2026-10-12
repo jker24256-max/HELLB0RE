@@ -1,6 +1,6 @@
 # HELLEBORE
 
-**A dashboard-first wireless reconnaissance and defensive-assessment toolkit for the M5Stack Cardputer Adv.**
+**A tiny desk companion for the M5Stack Cardputer Adv, with a friendly animated pet and focus timer.**
 
 > Repository name: `HELLB0RE` (zero in the repository name). Product name: **HELLEBORE**.
 
@@ -13,6 +13,10 @@ NIGHTSHADE is a separate project and is intentionally untouched.
 - Store reports on microSD when available.
 - Use wireless assessment only on devices and networks you own or are explicitly authorized to test.
 - Report capability honestly: a cloud build is not hardware validation.
+
+## Desk companion
+
+HELLEBORE boots into a little animated desk buddy named Helle. Press `P` or Space to interact and cycle moods/earn companion XP. Press `F` to open the 25-minute focus nook; Space starts/pauses the timer and `R` resets it. Press `M` to open the tools menu. Settings can still be opened with `T` from the tools dashboard.
 
 ## Current capabilities
 
