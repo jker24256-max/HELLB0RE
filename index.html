@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#070a17">
+  <meta name="description" content="LITTLE WORLD — a living cosmic sandbox. Create a star system, explore its planets, and watch the universe move.">
+  <title>LITTLE WORLD — Cosmic Sandbox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="importmap">
+    {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"}}
+  </script>
+</head>
+<body>
+  <div id="universe" aria-label="Interactive 3D star system"></div>
+  <div class="vignette"></div>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="Little World home"><span class="brand-mark">✳</span><span>LITTLE<span class="brand-light">WORLD</span><small>COSMIC SANDBOX · BUILD 001</small></span></a>
+    <div class="system-tag"><span class="live-dot"></span> SIMULATION LIVE <span class="tag-divider">/</span> <span id="clock">T+ 00:00:00</span></div>
+    <button class="icon-button" id="pauseButton" aria-label="Pause simulation" title="Pause / resume">Ⅱ</button>
+  </header>
+  <main>
+    <section class="hero-copy">
+      <p class="eyebrow"><span class="eyebrow-line"></span> YOUR UNIVERSE, YOUR RULES</p>
+      <h1>A little world.<br><em>Infinite</em> possibility.</h1>
+      <p class="hero-sub">A pocket universe in motion. Explore your first star system, discover strange worlds, and shape what happens next.</p>
+      <div class="hero-actions"><button class="primary-button" id="exploreButton">EXPLORE SYSTEM <span>↗</span></button><button class="text-button" id="resetButton">↺ &nbsp; RESET ORBITS</button></div>
+    </section>
+    <aside class="system-card glass">
+      <div class="card-heading"><div><span class="eyebrow">SYSTEM OVERVIEW</span><h2>Solace system</h2></div><span class="status-pill"><span class="live-dot"></span> STABLE</span></div>
+      <div class="stat-grid">
+        <div class="stat"><span>CELESTIAL BODIES</span><strong id="bodyCount">06</strong></div>
+        <div class="stat"><span>SYSTEM AGE</span><strong id="age">4.2 <small>Gyr</small></strong></div>
+        <div class="stat"><span>HABITABLE ZONE</span><strong class="accent">ACTIVE</strong></div>
+        <div class="stat"><span>GRAVITY MODEL</span><strong>NEWTONIAN</strong></div>
+      </div>
+      <div class="card-divider"></div>
+      <div class="selected-world"><div class="planet-thumb" id="planetThumb"></div><div class="world-copy"><span class="eyebrow">CURRENTLY SELECTED</span><strong id="selectedName">Aurelia</strong><span id="selectedType">Terrestrial · Temperate</span></div><button id="focusButton" class="focus-button" aria-label="Focus selected planet">◎</button></div>
+      <div class="planet-list" id="planetList" aria-label="Select a planet"></div>
+    </aside>
+    <section class="bottom-panel glass">
+      <div class="bottom-label"><span class="eyebrow">SIMULATION CONTROLS</span><strong>Time is yours.</strong></div>
+      <div class="time-controls"><button class="speed-button active" data-speed="0.25">¼×</button><button class="speed-button" data-speed="1">1×</button><button class="speed-button" data-speed="4">4×</button><button class="speed-button" data-speed="12">12×</button><span class="control-divider"></span><button id="slower" class="round-control" aria-label="Slower">−</button><button id="faster" class="round-control" aria-label="Faster">+</button></div>
+      <div class="time-status"><span class="live-dot"></span><span id="runStatus">RUNNING</span><strong id="speedReadout">0.25×</strong></div>
+    </section>
+  </main>
+  <div class="hint"><span>DRAG</span> ROTATE <i>·</i> <span>SCROLL</span> ZOOM <i>·</i> <span>SELECT</span> A PLANET</div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
